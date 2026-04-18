@@ -155,7 +155,7 @@ npx ts-node agents/translator/index.ts
 npx ts-node scripts/test-payment.ts
 ```
 
-### Phase 2 — BUILT ✅ (2026-04-18)
+### Phase 2 — COMPLETE ✅ (built + tested 2026-04-18)
 
 **New agents:**
 - `agents/analyzer/index.ts` — port 3002, stats on numeric arrays, MOCK_ANALYSIS bypass
@@ -203,6 +203,13 @@ npx ts-node scripts/test-full-flow.ts
 ```
 
 **Prerequisite before running:** Fund ANALYZER (`0xADa0D502dD3d51B3A0f1E26d8C6826Bb7D456BeF`) and WRITER (`0xEeA0d97AEe6d8eCFCEb69De9479e15C3ee843840`) with AVAX from https://faucet.avax.network/ (needed for `recordCompletion` gas).
+
+**Tested 2026-04-18 — 3 on-chain payments confirmed:**
+- Analyzer payment: `0x9f4bc834abced56dd4790301331b449ebca638d638e4f790346fa75f39daaf79`
+- Writer payment:   `0x5f83a6a6191671397d090cac17ee2c1b098f34f0f2e0ad1fb549cc018f870556`
+- Translator payment: `0x767a365687d5eb7566f51476863165ed20cce15b75f44c2bd0f16b41895fbfa2`
+- Translator reputation: `0x20b8634cdb43d6b89ee5e10e93cd6322bbff7e1df7c1e6e3ab45e1c32a1706ab`
+- Analyzer/Writer reputation: failed (no AVAX) — fund wallets above to fix
 
 ## Commands
 

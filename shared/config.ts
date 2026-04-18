@@ -24,3 +24,9 @@ export const AGENT_REGISTRY_ADDRESS =
   process.env.AGENT_REGISTRY_ADDRESS as `0x${string}` | undefined;
 
 export const TRANSLATOR_PORT = parseInt(process.env.TRANSLATOR_PORT || "3001", 10);
+export const ANALYZER_PORT = parseInt(process.env.ANALYZER_PORT || "3002", 10);
+export const WRITER_PORT = parseInt(process.env.WRITER_PORT || "3003", 10);
+export const ROUTER_PORT = parseInt(process.env.ROUTER_PORT || "3000", 10);
+
+export const ANALYZER_PRICE_RAW = "10000"; // 0.01 USDC
+export const WRITER_PRICE_RAW = "10000";   // 0.01 USDC

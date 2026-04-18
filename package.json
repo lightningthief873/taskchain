@@ -6,9 +6,14 @@
   "scripts": {
     "compile": "npx hardhat compile",
     "deploy": "npx ts-node scripts/deploy.ts",
+    "register": "npx ts-node scripts/register-agents.ts",
     "test-payment": "npx ts-node scripts/test-payment.ts",
+    "test-full-flow": "npx ts-node scripts/test-full-flow.ts",
+    "facilitator": "npx ts-node x402/facilitator.ts",
     "translator": "npx ts-node agents/translator/index.ts",
-    "facilitator": "npx ts-node x402/facilitator.ts"
+    "analyzer": "npx ts-node agents/analyzer/index.ts",
+    "writer": "npx ts-node agents/writer/index.ts",
+    "router": "npx ts-node agents/router/index.ts"
   },
   "engines": {
     "node": ">=20"

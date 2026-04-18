@@ -15,6 +15,8 @@ async function main() {
     generateWallet("DEPLOYER"),
     generateWallet("ROUTER_AGENT"),
     generateWallet("TRANSLATOR_AGENT"),
+    generateWallet("ANALYZER_AGENT"),
+    generateWallet("WRITER_AGENT"),
   ];
 
   console.log("\n=== Generated Wallets ===\n");
@@ -52,7 +54,13 @@ async function main() {
   console.log("   https://faucet.circle.com/  (select Avalanche Fuji, paste address)");
   console.log("   OR bridge test AVAX to USDC on https://testnet.traderjoexyz.com");
   console.log();
-  console.log(`3. TRANSLATOR_AGENT (${wallets[2].address}) — no funding needed, receives payments`);
+  console.log(`3. TRANSLATOR_AGENT (${wallets[2].address}) — needs small AVAX for gas (recordCompletion)`);
+  console.log();
+  console.log(`4. ANALYZER_AGENT (${wallets[3].address}) — needs small AVAX for gas (recordCompletion)`);
+  console.log(`   Fund at: https://faucet.avax.network/ (Fuji, paste address)`);
+  console.log();
+  console.log(`5. WRITER_AGENT (${wallets[4].address}) — needs small AVAX for gas (recordCompletion)`);
+  console.log(`   Fund at: https://faucet.avax.network/ (Fuji, paste address)`);
 }
 
 main().catch((err) => {

@@ -102,8 +102,8 @@ NEXT_PUBLIC_WS_URL=http://localhost:3001
 
 ## Build Phases
 
-- Phase 1 (MVP): ✅ BUILT — Single agent with x402 paywall + ERC-8004 registry. Awaiting keys + testnet funds to deploy & test.
-- Phase 2: Router agent + 3 sub-agents. Proves autonomous orchestration.
+- Phase 1 (MVP): ✅ COMPLETE (tested 2026-04-18) — Translator + x402 paywall + ERC-8004 registry on Fuji.
+- Phase 2: ✅ BUILT (2026-04-18) — Router + analyzer + writer + translator pipeline. Awaiting ANALYZER/WRITER wallet AVAX funding to run full flow test.
 - Phase 3: Frontend dashboard with live payment visualization. Proves demo-ability.
 - Phase 4: Docker Compose packaging + hosted deployment. Proves shippability.
 
@@ -116,10 +116,12 @@ NEXT_PUBLIC_WS_URL=http://localhost:3001
 - Facilitator: `https://facilitator.ultravioletadao.xyz` for Fuji (official `https://facilitator.x402.org` only supports Base/Polygon/Arbitrum)
 - USDC on Fuji: `0x5425890298aed601595a70AB815c96711a31Bc65` (Circle testnet USDC)
 
-### Generated Wallets (testnet only — fund before deploying)
+### Generated Wallets (testnet only)
 - DEPLOYER:    `0x3fba67E4fD7B82390cF38C88388feF4bB871a661` — needs test AVAX (gas)
-- ROUTER:      `0x962135CbDa2f1f33ef3aB1a3afdbd3bDa3e649ce` — needs 0.01+ USDC on Fuji (pays translator)
-- TRANSLATOR:  `0x106927178B6a28efFF6fad138443E3d898fe2Ac8` — receives USDC payments
+- ROUTER:      `0x962135CbDa2f1f33ef3aB1a3afdbd3bDa3e649ce` — pays sub-agents (needs USDC); ~19.97 USDC remaining
+- TRANSLATOR:  `0x106927178B6a28efFF6fad138443E3d898fe2Ac8` — receives USDC; needs AVAX for recordCompletion
+- ANALYZER:    `0xADa0D502dD3d51B3A0f1E26d8C6826Bb7D456BeF` — registered on-chain; **needs AVAX from faucet**
+- WRITER:      `0xEeA0d97AEe6d8eCFCEb69De9479e15C3ee843840` — registered on-chain; **needs AVAX from faucet**
 
 ### Phase 1 — COMPLETE ✅ (tested 2026-04-18)
 
@@ -152,6 +154,55 @@ npx ts-node agents/translator/index.ts
 # Terminal 3 — test
 npx ts-node scripts/test-payment.ts
 ```
+
+### Phase 2 — BUILT ✅ (2026-04-18)
+
+**New agents:**
+- `agents/analyzer/index.ts` — port 3002, stats on numeric arrays, MOCK_ANALYSIS bypass
+- `agents/writer/index.ts` — port 3003, prose summary via Claude, MOCK_WRITING bypass
+- `agents/router/` — port 3000, decomposes + orchestrates pipeline via x402-axios
+  - `decomposer.ts` — Anthropic decomposition + MOCK_DECOMPOSITION bypass
+  - `selector.ts` — queries AgentRegistry reputation, maps type → agent URL
+  - `executor.ts` — sequential x402-axios calls, chains outputs
+
+**On-chain registration txs:**
+- Register analyzer tx: `0x131eb68ae4ef07a6a532318e3eae7255f96fae117a33e7c99175ca7667037c7b`
+- Register writer tx: `0x2e4d28babe51c66d45369af7fcdf53404116fe8093c55c7b278ce6a23e2df384`
+
+**Mock env vars for testing without API credits:**
+- `MOCK_DECOMPOSITION=true` — router uses static analyzer→writer→translator plan
+- `MOCK_ANALYSIS=true` — analyzer returns fixed stats without computation
+- `MOCK_WRITING=true` — writer returns hardcoded paragraph
+- `MOCK_TRANSLATION=true` — translator returns hardcoded Spanish
+
+**To run Phase 2 full flow test (all mocks, no API credits needed):**
+```bash
+# Add to .env:
+# MOCK_DECOMPOSITION=true
+# MOCK_ANALYSIS=true
+# MOCK_WRITING=true
+# MOCK_TRANSLATION=true
+
+# Terminal 1
+npx ts-node x402/facilitator.ts
+
+# Terminal 2
+npx ts-node agents/analyzer/index.ts
+
+# Terminal 3
+npx ts-node agents/writer/index.ts
+
+# Terminal 4
+npx ts-node agents/translator/index.ts
+
+# Terminal 5
+npx ts-node agents/router/index.ts
+
+# Terminal 6
+npx ts-node scripts/test-full-flow.ts
+```
+
+**Prerequisite before running:** Fund ANALYZER (`0xADa0D502dD3d51B3A0f1E26d8C6826Bb7D456BeF`) and WRITER (`0xEeA0d97AEe6d8eCFCEb69De9479e15C3ee843840`) with AVAX from https://faucet.avax.network/ (needed for `recordCompletion` gas).
 
 ## Commands
 

@@ -23,6 +23,28 @@ const AGENTS = [
       network: "eip155:43113",
     }),
   },
+  {
+    name: "analyzer",
+    addressEnvKey: "ANALYZER_AGENT_ADDRESS",
+    metadataURI: JSON.stringify({
+      name: "Analyzer Agent",
+      description: "Computes statistics on numeric data arrays",
+      endpoint: "http://localhost:3002",
+      price: "0.01 USDC",
+      network: "eip155:43113",
+    }),
+  },
+  {
+    name: "writer",
+    addressEnvKey: "WRITER_AGENT_ADDRESS",
+    metadataURI: JSON.stringify({
+      name: "Writer Agent",
+      description: "Writes formatted prose summaries via Claude AI",
+      endpoint: "http://localhost:3003",
+      price: "0.01 USDC",
+      network: "eip155:43113",
+    }),
+  },
 ];
 
 async function main() {

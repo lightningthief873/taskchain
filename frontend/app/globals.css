@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #080808;
+  --card: #111111;
+  --border: #222222;
+}
+
+body {
+  background-color: var(--bg);
+  color: #f0f0f0;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer utilities {
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+  }
+
+  .badge-success {
+    @apply bg-emerald-500/10 text-emerald-400 border border-emerald-500/20;
+  }
+
+  .badge-error {
+    @apply bg-red-500/10 text-red-400 border border-red-500/20;
+  }
+
+  .badge-idle {
+    @apply bg-zinc-700/30 text-zinc-400 border border-zinc-700/50;
+  }
+}

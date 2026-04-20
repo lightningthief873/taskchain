@@ -103,8 +103,8 @@ NEXT_PUBLIC_WS_URL=http://localhost:3001
 ## Build Phases
 
 - Phase 1 (MVP): ✅ COMPLETE (tested 2026-04-18) — Translator + x402 paywall + ERC-8004 registry on Fuji.
-- Phase 2: ✅ BUILT (2026-04-18) — Router + analyzer + writer + translator pipeline. Awaiting ANALYZER/WRITER wallet AVAX funding to run full flow test.
-- Phase 3: Frontend dashboard with live payment visualization. Proves demo-ability.
+- Phase 2: ✅ COMPLETE (tested 2026-04-18) — Router + analyzer + writer + translator pipeline. 3 on-chain payments confirmed.
+- Phase 3: ✅ BUILT (2026-04-18) — Next.js 16 frontend. Task input page + live dashboard. Runs on port 3010.
 - Phase 4: Docker Compose packaging + hosted deployment. Proves shippability.
 
 ## Phase 1 Implementation Notes

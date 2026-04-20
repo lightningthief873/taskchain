@@ -13,7 +13,9 @@
     "translator": "npx ts-node agents/translator/index.ts",
     "analyzer": "npx ts-node agents/analyzer/index.ts",
     "writer": "npx ts-node agents/writer/index.ts",
-    "router": "npx ts-node agents/router/index.ts"
+    "router": "npx ts-node agents/router/index.ts",
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:build": "cd frontend && npm run build"
   },
   "engines": {
     "node": ">=20"

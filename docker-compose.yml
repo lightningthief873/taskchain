@@ -1,0 +1,133 @@
+# Shared config for all backend agent containers
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file: .env
+  restart: unless-stopped
+  networks:
+    - taskchain
+
+# Shared healthcheck template (port injected per service)
+x-healthcheck: &hc-defaults
+  interval: 12s
+  timeout: 6s
+  retries: 5
+  start_period: 45s
+
+services:
+  # ── Local x402 facilitator (USDC settlement on Fuji) ──────────────────────
+  facilitator:
+    <<: *backend
+    container_name: taskchain-facilitator
+    command: ["npx", "ts-node", "--project", "tsconfig.json", "x402/facilitator.ts"]
+    ports:
+      - "4021:4021"
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-fs", "http://localhost:4021/health"]
+
+  # ── Analyzer agent (port 3002) ─────────────────────────────────────────────
+  analyzer:
+    <<: *backend
+    container_name: taskchain-analyzer
+    command: ["npx", "ts-node", "--project", "tsconfig.json", "agents/analyzer/index.ts"]
+    ports:
+      - "3002:3002"
+    environment:
+      PAYMENT_FACILITATOR_URL: http://facilitator:4021
+    depends_on:
+      facilitator:
+        condition: service_healthy
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-fs", "http://localhost:3002/health"]
+
+  # ── Writer agent (port 3003) ───────────────────────────────────────────────
+  writer:
+    <<: *backend
+    container_name: taskchain-writer
+    command: ["npx", "ts-node", "--project", "tsconfig.json", "agents/writer/index.ts"]
+    ports:
+      - "3003:3003"
+    environment:
+      PAYMENT_FACILITATOR_URL: http://facilitator:4021
+    depends_on:
+      facilitator:
+        condition: service_healthy
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-fs", "http://localhost:3003/health"]
+
+  # ── Translator agent (port 3001) ───────────────────────────────────────────
+  translator:
+    <<: *backend
+    container_name: taskchain-translator
+    command: ["npx", "ts-node", "--project", "tsconfig.json", "agents/translator/index.ts"]
+    ports:
+      - "3001:3001"
+    environment:
+      PAYMENT_FACILITATOR_URL: http://facilitator:4021
+    depends_on:
+      facilitator:
+        condition: service_healthy
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-fs", "http://localhost:3001/health"]
+
+  # ── Router agent (port 3000) ───────────────────────────────────────────────
+  router:
+    <<: *backend
+    container_name: taskchain-router
+    command: ["npx", "ts-node", "--project", "tsconfig.json", "agents/router/index.ts"]
+    ports:
+      - "3000:3000"
+    environment:
+      PAYMENT_FACILITATOR_URL: http://facilitator:4021
+      # Docker service names so the router can reach agents inside the network
+      TRANSLATOR_URL: http://translator:3001
+      ANALYZER_URL: http://analyzer:3002
+      WRITER_URL: http://writer:3003
+    depends_on:
+      analyzer:
+        condition: service_healthy
+      writer:
+        condition: service_healthy
+      translator:
+        condition: service_healthy
+    healthcheck:
+      <<: *hc-defaults
+      start_period: 60s
+      test: ["CMD", "curl", "-fs", "http://localhost:3000/health"]
+
+  # ── Next.js frontend (port 3010) ───────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: taskchain-frontend
+    ports:
+      - "3010:3010"
+    environment:
+      # Server-side proxy uses Docker service name
+      ROUTER_URL: http://router:3000
+      # Client-side (browser) uses host-mapped port
+      NEXT_PUBLIC_FUJI_RPC: https://api.avax-test.network/ext/bc/C/rpc
+      NEXT_PUBLIC_AGENT_REGISTRY: "0xdDe74f96020161783d2663999f531a316904105e"
+      NEXT_PUBLIC_ROUTER_URL: http://localhost:3000
+    depends_on:
+      router:
+        condition: service_healthy
+    healthcheck:
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+      test: ["CMD", "curl", "-fs", "http://localhost:3010/"]
+    restart: unless-stopped
+    networks:
+      - taskchain
+
+networks:
+  taskchain:
+    driver: bridge

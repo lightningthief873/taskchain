@@ -1,0 +1,11 @@
+.env
+.env.*
+.git
+.gitignore
+node_modules
+dist
+artifacts/cache
+typechain-types
+frontend
+*.log
+.claude

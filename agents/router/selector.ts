@@ -7,20 +7,21 @@ const REGISTRY_ABI = [
   "function isRegistered(address agent) external view returns (bool)",
 ];
 
-// Static registry: one agent per type (Phase 2 uses single-agent-per-type model)
-function getAgentRegistry(): Record<AgentType, { address: string; port: number }> {
+// Static registry: one agent per type.
+// URLs default to localhost for manual runs; override via env vars for Docker.
+function getAgentRegistry(): Record<AgentType, { address: string; url: string }> {
   return {
     translator: {
       address: process.env.TRANSLATOR_AGENT_ADDRESS || "",
-      port: TRANSLATOR_PORT,
+      url: process.env.TRANSLATOR_URL || `http://localhost:${TRANSLATOR_PORT}`,
     },
     analyzer: {
       address: process.env.ANALYZER_AGENT_ADDRESS || "",
-      port: ANALYZER_PORT,
+      url: process.env.ANALYZER_URL || `http://localhost:${ANALYZER_PORT}`,
     },
     writer: {
       address: process.env.WRITER_AGENT_ADDRESS || "",
-      port: WRITER_PORT,
+      url: process.env.WRITER_URL || `http://localhost:${WRITER_PORT}`,
     },
   };
 }
@@ -32,7 +33,7 @@ export async function selectAgent(agentType: AgentType): Promise<AgentInfo> {
     throw new Error(`No address configured for agent type: ${agentType}`);
   }
 
-  const url = `http://localhost:${entry.port}`;
+  const url = entry.url;
   let reputation: AgentInfo["reputation"] = { successes: 0n, failures: 0n, score: 0n };
 
   if (AGENT_REGISTRY_ADDRESS) {

@@ -5,9 +5,14 @@ const ROUTER_URL = process.env.ROUTER_URL ?? "http://localhost:3000";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    // Forward JWT if present (router can use it for per-user task logging in future)
+    const auth = req.headers.get("Authorization");
+    if (auth) headers["Authorization"] = auth;
+
     const upstream = await fetch(`${ROUTER_URL}/task`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(120_000),
     });

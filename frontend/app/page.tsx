@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import StepResult from "@/components/StepResult";
+import { authHeaders } from "@/lib/auth";
 
 interface StepResultData {
   agentType: string;
@@ -50,7 +51,7 @@ export default function HomePage() {
     try {
       const res = await fetch("/api/task", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(body),
       });
       const json = (await res.json()) as TaskResponse;

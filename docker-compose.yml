@@ -16,6 +16,51 @@ x-healthcheck: &hc-defaults
   start_period: 45s
 
 services:
+  # ── PostgreSQL database ────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: taskchain-db
+    environment:
+      POSTGRES_USER: taskchain
+      POSTGRES_PASSWORD: taskchain
+      POSTGRES_DB: taskchain
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+      test: ["CMD-SHELL", "pg_isready -U taskchain"]
+    restart: unless-stopped
+    networks:
+      - taskchain
+
+  # ── Backend API (auth + user profiles) — port 3005 ───────────────────────
+  api:
+    <<: *backend
+    container_name: taskchain-api
+    command:
+      - sh
+      - -c
+      - "npx prisma migrate deploy && npx ts-node --project tsconfig.json api/index.ts"
+    ports:
+      - "3005:3005"
+    environment:
+      DATABASE_URL: postgresql://taskchain:taskchain@db:5432/taskchain
+      JWT_SECRET: ${JWT_SECRET:-taskchain-dev-secret-change-in-prod}
+      PRIVY_APP_ID: ${PRIVY_APP_ID:-}
+      PRIVY_APP_SECRET: ${PRIVY_APP_SECRET:-}
+      PRIVY_SKIP_VERIFY: ${PRIVY_SKIP_VERIFY:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-fs", "http://localhost:3005/health"]
+
   # ── Local x402 facilitator (USDC settlement on Fuji) ──────────────────────
   facilitator:
     <<: *backend
@@ -105,18 +150,23 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_PRIVY_APP_ID: ${NEXT_PUBLIC_PRIVY_APP_ID:-}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3005}
+        NEXT_PUBLIC_FUJI_RPC: https://api.avax-test.network/ext/bc/C/rpc
+        NEXT_PUBLIC_AGENT_REGISTRY: "0xdDe74f96020161783d2663999f531a316904105e"
+        NEXT_PUBLIC_ROUTER_URL: http://localhost:3000
     container_name: taskchain-frontend
     ports:
       - "3010:3010"
     environment:
-      # Server-side proxy uses Docker service name
+      # Server-side
       ROUTER_URL: http://router:3000
-      # Client-side (browser) uses host-mapped port
-      NEXT_PUBLIC_FUJI_RPC: https://api.avax-test.network/ext/bc/C/rpc
-      NEXT_PUBLIC_AGENT_REGISTRY: "0xdDe74f96020161783d2663999f531a316904105e"
-      NEXT_PUBLIC_ROUTER_URL: http://localhost:3000
+      API_URL: http://api:3005
     depends_on:
       router:
+        condition: service_healthy
+      api:
         condition: service_healthy
     healthcheck:
       interval: 15s
@@ -131,3 +181,6 @@ services:
 networks:
   taskchain:
     driver: bridge
+
+volumes:
+  postgres_data:

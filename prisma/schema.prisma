@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  walletAddress String   @unique
+  username      String?
+  bio           String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  agents Agent[]
+  tasks  Task[]
+}
+
+model Agent {
+  id                 String   @id @default(cuid())
+  ownerId            String
+  owner              User     @relation(fields: [ownerId], references: [id])
+  name               String
+  description        String?
+  systemPrompt       String?
+  contextText        String?
+  priceUsdc          Int
+  endpoint           String
+  agentWalletAddress String?
+  reputationScore    Int      @default(0)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  taskSteps TaskStep[]
+}
+
+model Task {
+  id            String     @id @default(cuid())
+  userId        String
+  user          User       @relation(fields: [userId], references: [id])
+  pipeline      Json
+  status        TaskStatus @default(PENDING)
+  inputPayload  Json
+  outputPayload Json?
+  totalCostUsdc Int?
+  escrowTxHash  String?
+  createdAt     DateTime   @default(now())
+  completedAt   DateTime?
+
+  steps TaskStep[]
+}
+
+model TaskStep {
+  id            String     @id @default(cuid())
+  taskId        String
+  task          Task       @relation(fields: [taskId], references: [id])
+  agentId       String
+  agent         Agent      @relation(fields: [agentId], references: [id])
+  stepIndex     Int
+  status        TaskStatus @default(PENDING)
+  inputPayload  Json?
+  outputPayload Json?
+  paymentTxHash String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+}
+
+enum TaskStatus {
+  PENDING
+  RUNNING
+  AWAITING_APPROVAL
+  COMPLETE
+  DISPUTED
+}

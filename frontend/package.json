@@ -8,6 +8,7 @@
     "start": "next start -p 3010"
   },
   "dependencies": {
+    "@privy-io/react-auth": "^3.22.1",
     "ethers": "^6.13.5",
     "next": "^16.2.4",
     "react": "^18",

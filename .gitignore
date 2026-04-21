@@ -8,3 +8,5 @@ typechain-types/
 coverage/
 frontend/.next/
 frontend/node_modules/
+
+/generated/prisma

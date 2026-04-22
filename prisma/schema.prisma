@@ -20,19 +20,20 @@ model User {
 }
 
 model Agent {
-  id                 String   @id @default(cuid())
-  ownerId            String
-  owner              User     @relation(fields: [ownerId], references: [id])
-  name               String
-  description        String?
-  systemPrompt       String?
-  contextText        String?
-  priceUsdc          Int
-  endpoint           String
-  agentWalletAddress String?
-  reputationScore    Int      @default(0)
-  isActive           Boolean  @default(true)
-  createdAt          DateTime @default(now())
+  id                  String   @id @default(cuid())
+  ownerId             String
+  owner               User     @relation(fields: [ownerId], references: [id])
+  name                String
+  description         String?
+  systemPrompt        String?
+  contextText         String?
+  priceUsdc           Int
+  endpoint            String
+  agentWalletAddress  String?
+  encryptedPrivateKey String?
+  reputationScore     Int      @default(0)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
 
   taskSteps TaskStep[]
 }

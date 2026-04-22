@@ -26,11 +26,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/" className="text-zinc-400 hover:text-zinc-100 transition-colors">
                 Run Task
               </Link>
-              <Link
-                href="/dashboard"
-                className="text-zinc-400 hover:text-zinc-100 transition-colors"
-              >
+              <Link href="/dashboard" className="text-zinc-400 hover:text-zinc-100 transition-colors">
                 Dashboard
+              </Link>
+              <Link href="/agents/create" className="text-zinc-400 hover:text-zinc-100 transition-colors">
+                Create Agent
+              </Link>
+              <Link href="/agents/my" className="text-zinc-400 hover:text-zinc-100 transition-colors">
+                My Agents
               </Link>
               <a
                 href="https://testnet.snowtrace.io/address/0xdDe74f96020161783d2663999f531a316904105e"

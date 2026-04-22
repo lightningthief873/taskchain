@@ -38,7 +38,7 @@ services:
     networks:
       - taskchain
 
-  # ── Backend API (auth + user profiles) — port 3005 ───────────────────────
+  # ── Backend API (auth + user profiles + agent marketplace) — port 3005 ────
   api:
     <<: *backend
     container_name: taskchain-api
@@ -54,12 +54,35 @@ services:
       PRIVY_APP_ID: ${PRIVY_APP_ID:-}
       PRIVY_APP_SECRET: ${PRIVY_APP_SECRET:-}
       PRIVY_SKIP_VERIFY: ${PRIVY_SKIP_VERIFY:-false}
+      AGENT_MASTER_KEY: ${AGENT_MASTER_KEY:-}
+      RUNNER_URL: http://runner:4000
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
       <<: *hc-defaults
       test: ["CMD", "curl", "-fs", "http://localhost:3005/health"]
+
+  # ── Unified AgentRunner (all user-created agents) — port 4000 ─────────────
+  runner:
+    <<: *backend
+    container_name: taskchain-runner
+    command: ["npx", "ts-node", "--project", "tsconfig.json", "agents/runner/index.ts"]
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://taskchain:taskchain@db:5432/taskchain
+      PAYMENT_FACILITATOR_URL: http://facilitator:4021
+      AGENT_MASTER_KEY: ${AGENT_MASTER_KEY:-}
+      RUNNER_PORT: "4000"
+    depends_on:
+      db:
+        condition: service_healthy
+      facilitator:
+        condition: service_healthy
+    healthcheck:
+      <<: *hc-defaults
+      test: ["CMD", "curl", "-fs", "http://localhost:4000/health"]
 
   # ── Local x402 facilitator (USDC settlement on Fuji) ──────────────────────
   facilitator:
@@ -72,54 +95,6 @@ services:
       <<: *hc-defaults
       test: ["CMD", "curl", "-fs", "http://localhost:4021/health"]
 
-  # ── Analyzer agent (port 3002) ─────────────────────────────────────────────
-  analyzer:
-    <<: *backend
-    container_name: taskchain-analyzer
-    command: ["npx", "ts-node", "--project", "tsconfig.json", "agents/analyzer/index.ts"]
-    ports:
-      - "3002:3002"
-    environment:
-      PAYMENT_FACILITATOR_URL: http://facilitator:4021
-    depends_on:
-      facilitator:
-        condition: service_healthy
-    healthcheck:
-      <<: *hc-defaults
-      test: ["CMD", "curl", "-fs", "http://localhost:3002/health"]
-
-  # ── Writer agent (port 3003) ───────────────────────────────────────────────
-  writer:
-    <<: *backend
-    container_name: taskchain-writer
-    command: ["npx", "ts-node", "--project", "tsconfig.json", "agents/writer/index.ts"]
-    ports:
-      - "3003:3003"
-    environment:
-      PAYMENT_FACILITATOR_URL: http://facilitator:4021
-    depends_on:
-      facilitator:
-        condition: service_healthy
-    healthcheck:
-      <<: *hc-defaults
-      test: ["CMD", "curl", "-fs", "http://localhost:3003/health"]
-
-  # ── Translator agent (port 3001) ───────────────────────────────────────────
-  translator:
-    <<: *backend
-    container_name: taskchain-translator
-    command: ["npx", "ts-node", "--project", "tsconfig.json", "agents/translator/index.ts"]
-    ports:
-      - "3001:3001"
-    environment:
-      PAYMENT_FACILITATOR_URL: http://facilitator:4021
-    depends_on:
-      facilitator:
-        condition: service_healthy
-    healthcheck:
-      <<: *hc-defaults
-      test: ["CMD", "curl", "-fs", "http://localhost:3001/health"]
-
   # ── Router agent (port 3000) ───────────────────────────────────────────────
   router:
     <<: *backend
@@ -129,16 +104,14 @@ services:
       - "3000:3000"
     environment:
       PAYMENT_FACILITATOR_URL: http://facilitator:4021
-      # Docker service names so the router can reach agents inside the network
-      TRANSLATOR_URL: http://translator:3001
-      ANALYZER_URL: http://analyzer:3002
-      WRITER_URL: http://writer:3003
+      # Legacy hardcoded agents still referenced by router — set to runner for passthrough
+      TRANSLATOR_URL: http://runner:4000
+      ANALYZER_URL: http://runner:4000
+      WRITER_URL: http://runner:4000
     depends_on:
-      analyzer:
+      runner:
         condition: service_healthy
-      writer:
-        condition: service_healthy
-      translator:
+      facilitator:
         condition: service_healthy
     healthcheck:
       <<: *hc-defaults
@@ -160,7 +133,6 @@ services:
     ports:
       - "3010:3010"
     environment:
-      # Server-side
       ROUTER_URL: http://router:3000
       API_URL: http://api:3005
     depends_on:

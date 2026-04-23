@@ -15,8 +15,9 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  agents Agent[]
-  tasks  Task[]
+  agents  Agent[]
+  tasks   Task[]
+  reviews Review[]
 }
 
 model Agent {
@@ -36,6 +37,7 @@ model Agent {
   createdAt           DateTime @default(now())
 
   taskSteps TaskStep[]
+  reviews   Review[]
 }
 
 model Task {
@@ -61,12 +63,30 @@ model TaskStep {
   agentId       String
   agent         Agent      @relation(fields: [agentId], references: [id])
   stepIndex     Int
+  stepContext   String?
   status        TaskStatus @default(PENDING)
   inputPayload  Json?
   outputPayload Json?
   paymentTxHash String?
   startedAt     DateTime?
   completedAt   DateTime?
+
+  reviews Review[]
+}
+
+model Review {
+  id         String   @id @default(cuid())
+  agentId    String
+  agent      Agent    @relation(fields: [agentId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  taskStepId String
+  taskStep   TaskStep @relation(fields: [taskStepId], references: [id])
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@unique([taskStepId, userId])
 }
 
 enum TaskStatus {
@@ -74,5 +94,6 @@ enum TaskStatus {
   RUNNING
   AWAITING_APPROVAL
   COMPLETE
+  FAILED
   DISPUTED
 }

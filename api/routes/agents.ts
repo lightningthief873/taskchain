@@ -122,6 +122,17 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
   res.json(agents);
 });
 
+// GET /agents/:id/reviews — recent reviews for an agent (must be before /:id)
+router.get("/:id/reviews", async (req: Request, res: Response): Promise<void> => {
+  const reviews = await prisma.review.findMany({
+    where: { agentId: req.params["id"] as string },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    include: { user: { select: { id: true, username: true, walletAddress: true } } },
+  });
+  res.json(reviews);
+});
+
 // GET /agents/:id — single agent detail
 router.get("/:id", async (req: Request, res: Response): Promise<void> => {
   const agent = await prisma.agent.findUnique({

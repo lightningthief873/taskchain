@@ -26,6 +26,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/" className="text-zinc-400 hover:text-zinc-100 transition-colors">
                 Run Task
               </Link>
+              <Link href="/marketplace" className="text-zinc-400 hover:text-zinc-100 transition-colors">
+                Marketplace
+              </Link>
               <Link href="/dashboard" className="text-zinc-400 hover:text-zinc-100 transition-colors">
                 Dashboard
               </Link>

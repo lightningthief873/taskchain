@@ -237,4 +237,41 @@ router.post(
   },
 );
 
+// POST /agents/:id/rate — simple rating for agent after task completion
+// body: { taskId, stars: 1-5, comment }
+// Finds the TaskStep for this agent in the given task and upserts a Review.
+router.post("/:id/rate", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const agentId = req.params["id"] as string;
+  const { taskId, stars, comment } = req.body as {
+    taskId?: string;
+    stars?: number;
+    comment?: string;
+  };
+
+  if (!taskId) { res.status(400).json({ error: "taskId is required" }); return; }
+  if (!stars || !Number.isInteger(stars) || stars < 1 || stars > 5) {
+    res.status(400).json({ error: "stars must be an integer 1–5" });
+    return;
+  }
+
+  const step = await prisma.taskStep.findFirst({
+    where: { taskId, agentId },
+    orderBy: { stepIndex: "asc" },
+  });
+  if (!step) { res.status(404).json({ error: "No matching step found for this agent/task" }); return; }
+
+  const review = await prisma.review.upsert({
+    where: { taskStepId_userId: { taskStepId: step.id, userId: req.user!.userId } },
+    create: {
+      taskStepId: step.id,
+      agentId,
+      userId: req.user!.userId,
+      rating: stars,
+      comment: comment ?? null,
+    },
+    update: { rating: stars, comment: comment ?? null },
+  });
+  res.json(review);
+});
+
 export default router;

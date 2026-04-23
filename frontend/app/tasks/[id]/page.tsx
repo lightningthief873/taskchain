@@ -1,45 +1,70 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getTask, submitReview, priceDisplay, type Task, type TaskStep } from "@/lib/tasks";
 import { getStoredToken } from "@/lib/auth";
 import { SNOWTRACE } from "@/lib/config";
+import { joinTaskRoom, leaveTaskRoom } from "@/lib/socket";
+import {
+  getBrowserSigner,
+  approveUSDC,
+  fundEscrow,
+  approveEscrowTask,
+  disputeEscrowTask,
+} from "@/lib/escrow";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3005";
+const ESCROW_ADDRESS = process.env.NEXT_PUBLIC_ESCROW_ADDRESS ?? "";
+
+// ── Status helpers ────────────────────────────────────────────────────────────
 
 const LABEL: Record<string, string> = {
   PENDING: "waiting",
   RUNNING: "running",
   COMPLETE: "complete",
   FAILED: "failed",
-  AWAITING_APPROVAL: "awaiting approval",
+  AWAITING_APPROVAL: "awaiting your approval",
   DISPUTED: "disputed",
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  PENDING: "text-zinc-500 border-zinc-700",
-  RUNNING: "text-amber-400 border-amber-500",
-  COMPLETE: "text-emerald-400 border-emerald-500",
-  FAILED: "text-red-400 border-red-500",
+  PENDING:           "text-zinc-500 border-zinc-700",
+  RUNNING:           "text-amber-400 border-amber-500",
+  COMPLETE:          "text-emerald-400 border-emerald-500",
+  FAILED:            "text-red-400 border-red-500",
   AWAITING_APPROVAL: "text-blue-400 border-blue-500",
-  DISPUTED: "text-orange-400 border-orange-500",
+  DISPUTED:          "text-orange-400 border-orange-500",
 };
 
 const DOT_COLOR: Record<string, string> = {
-  PENDING: "bg-zinc-600",
-  RUNNING: "bg-amber-400 animate-pulse",
-  COMPLETE: "bg-emerald-500",
-  FAILED: "bg-red-500",
+  PENDING:           "bg-zinc-600",
+  RUNNING:           "bg-amber-400 animate-pulse",
+  COMPLETE:          "bg-emerald-500",
+  FAILED:            "bg-red-500",
   AWAITING_APPROVAL: "bg-blue-400",
-  DISPUTED: "bg-orange-400",
+  DISPUTED:          "bg-orange-400",
 };
 
-function StepCard({ step, taskId, token }: { step: TaskStep; taskId: string; token: string | null }) {
+// ── Step card ─────────────────────────────────────────────────────────────────
+
+function StepCard({
+  step,
+  taskId,
+  token,
+}: {
+  step: TaskStep;
+  taskId: string;
+  token: string | null;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState("");
   const [reviewing, setReviewing] = useState(false);
-  const [reviewed, setReviewed] = useState(step.reviews.some((r) => r.rating > 0));
+  const [reviewed, setReviewed] = useState(
+    step.reviews.some((r) => r.rating > 0),
+  );
 
   const canReview = token && step.status === "COMPLETE" && !reviewed;
 
@@ -65,7 +90,6 @@ function StepCard({ step, taskId, token }: { step: TaskStep; taskId: string; tok
 
   return (
     <div className="flex gap-4">
-      {/* Timeline dot + line */}
       <div className="flex flex-col items-center">
         <div
           className={`w-3 h-3 rounded-full shrink-0 mt-1.5 ${DOT_COLOR[step.status] ?? "bg-zinc-600"}`}
@@ -73,13 +97,10 @@ function StepCard({ step, taskId, token }: { step: TaskStep; taskId: string; tok
         <div className="w-px flex-1 bg-zinc-800 mt-1" />
       </div>
 
-      {/* Card */}
       <div className="flex-1 pb-6">
         <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-900/40 space-y-3">
-          {/* Step header */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
-              {/* Avatar */}
               <div className="w-8 h-8 rounded-md bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-400 shrink-0">
                 {step.agent.name.slice(0, 2).toUpperCase()}
               </div>
@@ -97,12 +118,10 @@ function StepCard({ step, taskId, token }: { step: TaskStep; taskId: string; tok
             </span>
           </div>
 
-          {/* Step context */}
           {step.stepContext && (
             <p className="text-xs text-zinc-500 italic">"{step.stepContext}"</p>
           )}
 
-          {/* Output preview */}
           {output && (
             <div>
               <button
@@ -119,7 +138,6 @@ function StepCard({ step, taskId, token }: { step: TaskStep; taskId: string; tok
             </div>
           )}
 
-          {/* Payment tx */}
           {step.paymentTxHash && (
             <a
               href={`${SNOWTRACE}/tx/${step.paymentTxHash}`}
@@ -127,15 +145,10 @@ function StepCard({ step, taskId, token }: { step: TaskStep; taskId: string; tok
               rel="noreferrer"
               className="text-xs font-mono text-zinc-600 hover:text-avax flex items-center gap-1"
             >
-              <span>💳</span>
-              <span>
-                {step.paymentTxHash.slice(0, 10)}…{step.paymentTxHash.slice(-6)}
-              </span>
-              <span>↗</span>
+              💳 {step.paymentTxHash.slice(0, 10)}…{step.paymentTxHash.slice(-6)} ↗
             </a>
           )}
 
-          {/* Review widget */}
           {canReview && (
             <div className="border-t border-zinc-800 pt-3 space-y-2">
               <div className="text-xs text-zinc-500">Rate this agent:</div>
@@ -171,7 +184,9 @@ function StepCard({ step, taskId, token }: { step: TaskStep; taskId: string; tok
           )}
 
           {reviewed && (
-            <p className="text-xs text-emerald-500 border-t border-zinc-800 pt-2">✓ Review submitted</p>
+            <p className="text-xs text-emerald-500 border-t border-zinc-800 pt-2">
+              ✓ Review submitted
+            </p>
           )}
         </div>
       </div>
@@ -179,32 +194,437 @@ function StepCard({ step, taskId, token }: { step: TaskStep; taskId: string; tok
   );
 }
 
+// ── EscrowPanel — PENDING state ───────────────────────────────────────────────
+
+interface EscrowData {
+  taskId32: string;
+  escrowContract: string;
+  agentAddresses: string[];
+  agentAmounts: number[];
+  totalCostUsdc: number;
+}
+
+function EscrowPanel({
+  taskId,
+  data,
+  token,
+  onFunded,
+}: {
+  taskId: string;
+  data: EscrowData;
+  token: string | null;
+  onFunded: (txHash: string) => void;
+}) {
+  const [step, setStep] = useState<"idle" | "approving" | "funding" | "done">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleFund() {
+    if (!token) { setError("Connect wallet first"); return; }
+    if (!window.ethereum) { setError("No wallet found — install MetaMask or use Privy"); return; }
+    if (!data.escrowContract) {
+      // No escrow configured — skip directly to execution
+      onFunded("skip");
+      return;
+    }
+    setError(null);
+    setStep("approving");
+    try {
+      const signer = await getBrowserSigner();
+      await approveUSDC(signer, data.escrowContract, BigInt(data.totalCostUsdc));
+      setStep("funding");
+      const { txHash } = await fundEscrow(
+        signer,
+        data.escrowContract,
+        taskId,
+        data.agentAddresses,
+        data.agentAmounts,
+        data.totalCostUsdc,
+      );
+      setStep("done");
+      onFunded(txHash);
+    } catch (e) {
+      setStep("idle");
+      setError(e instanceof Error ? e.message : "Transaction failed");
+    }
+  }
+
+  const labels = {
+    idle: "Fund Escrow & Start",
+    approving: "Step 1/2: Approving USDC…",
+    funding: "Step 2/2: Funding escrow…",
+    done: "Funded!",
+  };
+
+  return (
+    <div className="border border-zinc-700 rounded-lg p-5 bg-zinc-900/60 space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-zinc-100">Fund Escrow to Start</h3>
+        <p className="text-xs text-zinc-500 mt-1">
+          Deposit {priceDisplay(data.totalCostUsdc)} USDC into the escrow contract.
+          Funds release to agents only after you approve the output.
+        </p>
+      </div>
+
+      <div className="text-xs space-y-1 text-zinc-400">
+        <div className="flex justify-between">
+          <span>Agent costs</span>
+          <span>{priceDisplay(data.agentAmounts.reduce((s, a) => s + a, 0))}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Platform fee (5%)</span>
+          <span>{priceDisplay(data.totalCostUsdc - data.agentAmounts.reduce((s, a) => s + a, 0))}</span>
+        </div>
+        <div className="flex justify-between font-medium text-zinc-200 border-t border-zinc-700 pt-1 mt-1">
+          <span>Total</span>
+          <span className="text-avax">{priceDisplay(data.totalCostUsdc)}</span>
+        </div>
+      </div>
+
+      {error && (
+        <p className="text-xs text-red-400 bg-red-500/5 border border-red-500/20 rounded px-3 py-2">
+          {error}
+        </p>
+      )}
+
+      <button
+        onClick={() => void handleFund()}
+        disabled={step !== "idle"}
+        className="w-full bg-avax hover:opacity-90 disabled:opacity-50 text-white font-medium py-2.5 rounded text-sm"
+      >
+        {labels[step]}
+      </button>
+
+      {!data.escrowContract && (
+        <p className="text-xs text-zinc-600 text-center">
+          Escrow contract not configured — will skip on-chain deposit.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── ApprovalPanel — AWAITING_APPROVAL state ───────────────────────────────────
+
+function ApprovalPanel({
+  taskId,
+  finalOutput,
+  token,
+  onApproved,
+  onDisputed,
+}: {
+  taskId: string;
+  finalOutput: string;
+  token: string | null;
+  onApproved: () => void;
+  onDisputed: () => void;
+}) {
+  const [approving, setApproving] = useState(false);
+  const [disputing, setDisputing] = useState(false);
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
+  const [disputeReason, setDisputeReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleApprove() {
+    setApproving(true);
+    setError(null);
+    try {
+      let approveTxHash: string | undefined;
+
+      // If escrow is configured, sign the on-chain approve tx first
+      if (ESCROW_ADDRESS && window.ethereum) {
+        const signer = await getBrowserSigner();
+        const { txHash } = await approveEscrowTask(signer, ESCROW_ADDRESS, taskId);
+        approveTxHash = txHash;
+      }
+
+      const res = await fetch(`${API_URL}/tasks/${taskId}/approve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token ?? ""}`,
+        },
+        body: JSON.stringify({ approveTxHash }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      onApproved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Approval failed");
+    } finally {
+      setApproving(false);
+    }
+  }
+
+  async function handleDispute() {
+    if (!disputeReason.trim()) return;
+    setDisputing(true);
+    setError(null);
+    try {
+      let disputeTxHash: string | undefined;
+
+      if (ESCROW_ADDRESS && window.ethereum) {
+        const signer = await getBrowserSigner();
+        const { txHash } = await disputeEscrowTask(
+          signer,
+          ESCROW_ADDRESS,
+          taskId,
+          disputeReason,
+        );
+        disputeTxHash = txHash;
+      }
+
+      const res = await fetch(`${API_URL}/tasks/${taskId}/dispute`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token ?? ""}`,
+        },
+        body: JSON.stringify({ reason: disputeReason, disputeTxHash }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setShowDisputeModal(false);
+      onDisputed();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Dispute failed");
+    } finally {
+      setDisputing(false);
+    }
+  }
+
+  return (
+    <div className="border border-blue-500/30 rounded-lg p-5 bg-blue-500/5 space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-zinc-100">Pipeline Complete — Review Output</h3>
+        <p className="text-xs text-zinc-500 mt-1">
+          Approve to release payment to agents, or dispute if the output is unsatisfactory.
+        </p>
+      </div>
+
+      {/* Final output */}
+      <pre className="text-sm text-zinc-300 bg-zinc-900 rounded p-4 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto border border-zinc-800">
+        {finalOutput || "No output recorded."}
+      </pre>
+
+      {error && (
+        <p className="text-xs text-red-400 bg-red-500/5 border border-red-500/20 rounded px-3 py-2">
+          {error}
+        </p>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          onClick={() => void handleApprove()}
+          disabled={approving || disputing}
+          className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-medium py-2.5 rounded text-sm"
+        >
+          {approving ? "Signing…" : "Approve & Pay ✓"}
+        </button>
+        <button
+          onClick={() => setShowDisputeModal(true)}
+          disabled={approving || disputing}
+          className="flex-1 border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-40 font-medium py-2.5 rounded text-sm"
+        >
+          Dispute ✗
+        </button>
+      </div>
+
+      {/* Dispute modal */}
+      {showDisputeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-xl p-6 space-y-4">
+            <h3 className="font-semibold text-zinc-100">Dispute Output</h3>
+            <p className="text-xs text-zinc-500">
+              Describe why the output is unsatisfactory. Funds will be locked for 48h
+              then refunded if unresolved.
+            </p>
+            <textarea
+              value={disputeReason}
+              onChange={(e) => setDisputeReason(e.target.value)}
+              placeholder="The output was incomplete because…"
+              rows={4}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none resize-none"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => void handleDispute()}
+                disabled={disputing || !disputeReason.trim()}
+                className="flex-1 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white py-2 rounded text-sm"
+              >
+                {disputing ? "Signing…" : "Submit Dispute"}
+              </button>
+              <button
+                onClick={() => setShowDisputeModal(false)}
+                className="flex-1 border border-zinc-700 text-zinc-400 hover:text-white py-2 rounded text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Success banner ────────────────────────────────────────────────────────────
+
+function SuccessBanner({ txHash }: { txHash?: string | null }) {
+  return (
+    <div className="border border-emerald-500/30 rounded-lg p-5 bg-emerald-500/5 text-center space-y-2">
+      <div className="text-4xl">🎉</div>
+      <h3 className="font-semibold text-emerald-400 text-lg">Payment Released!</h3>
+      <p className="text-xs text-zinc-400">
+        USDC distributed to agent wallets and platform treasury on Fuji.
+      </p>
+      {txHash && txHash !== "skip" && (
+        <a
+          href={`${SNOWTRACE}/tx/${txHash}`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs font-mono text-zinc-500 hover:text-avax"
+        >
+          Tx: {txHash.slice(0, 12)}… ↗
+        </a>
+      )}
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+interface EscrowMeta {
+  taskId32: string;
+  escrowContract: string;
+  agentAddresses: string[];
+  agentAmounts: number[];
+}
+
 export default function TaskStatusPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id: taskId } = useParams<{ id: string }>();
   const token = getStoredToken();
 
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [escrowMeta, setEscrowMeta] = useState<EscrowMeta | null>(null);
+  const [approveTxHash, setApproveTxHash] = useState<string | null>(null);
+  const escrowMetaRef = useRef<EscrowMeta | null>(null);
 
   const fetchTask = useCallback(async () => {
     try {
-      const t = await getTask(id);
+      const t = await getTask(taskId);
       setTask(t);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Task not found");
     }
-  }, [id]);
+  }, [taskId]);
+
+  // Load escrow metadata from sessionStorage (set by marketplace page when task was created)
+  useEffect(() => {
+    const stored = sessionStorage.getItem(`escrow:${taskId}`);
+    if (stored) {
+      const meta = JSON.parse(stored) as EscrowMeta;
+      setEscrowMeta(meta);
+      escrowMetaRef.current = meta;
+    }
+  }, [taskId]);
 
   useEffect(() => {
     void fetchTask();
   }, [fetchTask]);
 
-  // Poll every 3s while task is running
+  // Poll every 3s while RUNNING
   useEffect(() => {
     if (!task || task.status !== "RUNNING") return;
     const timer = setInterval(() => void fetchTask(), 3000);
     return () => clearInterval(timer);
   }, [task, fetchTask]);
+
+  // WebSocket for live step updates
+  useEffect(() => {
+    const socket = joinTaskRoom(taskId);
+
+    socket.on("task:step:start", ({ stepId }: { stepId: string }) => {
+      setTask((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          steps: prev.steps.map((s) =>
+            s.id === stepId ? { ...s, status: "RUNNING" } : s,
+          ),
+        };
+      });
+    });
+
+    socket.on("task:step:complete", ({ stepId, output }: { stepId: string; output: string }) => {
+      setTask((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          steps: prev.steps.map((s) =>
+            s.id === stepId
+              ? { ...s, status: "COMPLETE", outputPayload: { output } }
+              : s,
+          ),
+        };
+      });
+    });
+
+    socket.on("task:step:failed", ({ stepId }: { stepId: string }) => {
+      setTask((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: "FAILED",
+          steps: prev.steps.map((s) =>
+            s.id === stepId ? { ...s, status: "FAILED" } : s,
+          ),
+        };
+      });
+    });
+
+    socket.on("task:complete", ({ output }: { output: string }) => {
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: "AWAITING_APPROVAL",
+              outputPayload: { finalOutput: output },
+            }
+          : prev,
+      );
+    });
+
+    socket.on("task:approved", () => {
+      setTask((prev) => (prev ? { ...prev, status: "COMPLETE" } : prev));
+    });
+
+    socket.on("task:disputed", () => {
+      setTask((prev) => (prev ? { ...prev, status: "DISPUTED" } : prev));
+    });
+
+    return () => {
+      leaveTaskRoom(taskId);
+      socket.off("task:step:start");
+      socket.off("task:step:complete");
+      socket.off("task:step:failed");
+      socket.off("task:complete");
+      socket.off("task:approved");
+      socket.off("task:disputed");
+    };
+  }, [taskId]);
+
+  async function handleFunded(fundingTxHash: string) {
+    const res = await fetch(`${API_URL}/tasks/${taskId}/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token ?? ""}`,
+      },
+      body: JSON.stringify({ fundingTxHash }),
+    });
+    if (res.ok) {
+      setTask((prev) => (prev ? { ...prev, status: "RUNNING" } : prev));
+    }
+  }
 
   if (error) {
     return (
@@ -219,9 +639,8 @@ export default function TaskStatusPage() {
 
   if (!task) {
     return (
-      <div className="space-y-8">
-        <div className="h-6 w-40 bg-zinc-800 rounded animate-pulse" />
-        {[...Array(3)].map((_, i) => (
+      <div className="space-y-8 max-w-2xl">
+        {[...Array(4)].map((_, i) => (
           <div key={i} className="h-24 bg-zinc-900 rounded-lg animate-pulse" />
         ))}
       </div>
@@ -229,6 +648,10 @@ export default function TaskStatusPage() {
   }
 
   const totalRaw = task.steps.reduce((s, step) => s + step.agent.priceUsdc, 0);
+  const finalOutput =
+    task.outputPayload != null && typeof task.outputPayload === "object"
+      ? ((task.outputPayload as { finalOutput?: string }).finalOutput ?? "")
+      : "";
 
   return (
     <div className="max-w-2xl space-y-8">
@@ -244,31 +667,49 @@ export default function TaskStatusPage() {
         </div>
         <p className="font-mono text-xs text-zinc-600 break-all">{task.id}</p>
 
-        <div className="flex gap-6 text-sm mt-2">
-          {task.inputPayload?.text && (
-            <div>
-              <span className="text-zinc-600">Input: </span>
-              <span className="text-zinc-300">
-                {String(task.inputPayload.text).slice(0, 100)}
-                {String(task.inputPayload.text).length > 100 && "…"}
-              </span>
-            </div>
-          )}
-        </div>
+        {task.inputPayload?.text && (
+          <p className="text-sm text-zinc-400">
+            <span className="text-zinc-600">Input: </span>
+            {String(task.inputPayload.text).slice(0, 120)}
+            {String(task.inputPayload.text).length > 120 && "…"}
+          </p>
+        )}
 
-        <div className="flex gap-6 text-xs text-zinc-500 pt-1">
-          <span>{task.steps.length} steps</span>
+        <div className="flex gap-4 text-xs text-zinc-500">
+          <span>{task.steps.length} step{task.steps.length !== 1 ? "s" : ""}</span>
           <span>Est. cost: {priceDisplay(task.totalCostUsdc ?? totalRaw)}</span>
           <span>{new Date(task.createdAt).toLocaleString()}</span>
         </div>
       </div>
+
+      {/* Escrow funding (PENDING) */}
+      {task.status === "PENDING" && escrowMeta && (
+        <EscrowPanel
+          taskId={taskId}
+          data={{ ...escrowMeta, totalCostUsdc: task.totalCostUsdc ?? totalRaw }}
+          token={token}
+          onFunded={(txHash) => void handleFunded(txHash)}
+        />
+      )}
+
+      {/* PENDING without escrow meta — show start without escrow */}
+      {task.status === "PENDING" && !escrowMeta && (
+        <div className="border border-zinc-700 rounded-lg p-4 space-y-3">
+          <p className="text-sm text-zinc-400">Ready to execute pipeline.</p>
+          <button
+            onClick={() => void handleFunded("skip")}
+            className="bg-avax hover:opacity-90 text-white text-sm font-medium px-4 py-2 rounded"
+          >
+            Start Pipeline
+          </button>
+        </div>
+      )}
 
       {/* Timeline */}
       <div>
         {task.steps.map((step) => (
           <StepCard key={step.id} step={step} taskId={task.id} token={token} />
         ))}
-        {/* End dot */}
         <div className="flex gap-4">
           <div className="flex flex-col items-center">
             <div
@@ -276,10 +717,46 @@ export default function TaskStatusPage() {
             />
           </div>
           <div className="text-xs text-zinc-600 mt-1">
-            {task.status === "COMPLETE" ? "✓ Pipeline complete" : "Awaiting execution"}
+            {task.status === "COMPLETE"
+              ? "✓ Pipeline complete"
+              : task.status === "AWAITING_APPROVAL"
+                ? "Awaiting your approval"
+                : "Awaiting execution"}
           </div>
         </div>
       </div>
+
+      {/* Approval panel (AWAITING_APPROVAL) */}
+      {task.status === "AWAITING_APPROVAL" && (
+        <ApprovalPanel
+          taskId={taskId}
+          finalOutput={finalOutput}
+          token={token}
+          onApproved={() => {
+            setTask((prev) => (prev ? { ...prev, status: "COMPLETE" } : prev));
+            setApproveTxHash(task.escrowTxHash);
+          }}
+          onDisputed={() =>
+            setTask((prev) => (prev ? { ...prev, status: "DISPUTED" } : prev))
+          }
+        />
+      )}
+
+      {/* Success banner (COMPLETE) */}
+      {task.status === "COMPLETE" && (
+        <SuccessBanner txHash={approveTxHash ?? task.escrowTxHash} />
+      )}
+
+      {/* Dispute notice */}
+      {task.status === "DISPUTED" && (
+        <div className="border border-orange-500/30 rounded-lg p-5 bg-orange-500/5 text-center space-y-2">
+          <div className="text-3xl">⚠️</div>
+          <h3 className="font-semibold text-orange-400">Task Disputed</h3>
+          <p className="text-xs text-zinc-400">
+            Funds are locked for 48 hours. If unresolved, you will receive a full refund.
+          </p>
+        </div>
+      )}
 
       <div className="pt-2">
         <Link href="/marketplace" className="text-sm text-zinc-500 hover:text-zinc-300">

@@ -146,6 +146,15 @@ export default function MarketplacePage() {
         pipeline,
         inputPayload: { text: inputText },
       });
+      sessionStorage.setItem(
+        `escrow:${result.taskId}`,
+        JSON.stringify({
+          taskId32: result.taskId32,
+          escrowContract: result.escrowContract,
+          agentAddresses: result.agentAddresses,
+          agentAmounts: result.agentAmounts,
+        }),
+      );
       router.push(`/tasks/${result.taskId}`);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to create task");

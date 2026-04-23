@@ -52,8 +52,12 @@ export interface Task {
 
 export interface CreateTaskResult {
   taskId: string;
+  taskId32: string;
   totalCostUsdc: number;
   escrowAddress: string | null;
+  escrowContract: string | null;
+  agentAddresses: string[];
+  agentAmounts: number[];
   status: string;
   steps: TaskStep[];
 }

@@ -82,6 +82,8 @@ async function recordCompletion(agentWalletAddress: string, privateKey: string, 
 // GET /health
 app.get("/health", (_req, res) => res.json({ status: "ok", service: "taskchain-runner", port: PORT }));
 
+const INTERNAL_KEY = process.env.AGENT_MASTER_KEY;
+
 // POST /run/:agentId — dynamic x402 gated execution
 app.post("/run/:agentId", async (req: Request, res: Response): Promise<void> => {
   const agentId = req.params["agentId"] as string;
@@ -97,20 +99,24 @@ app.post("/run/:agentId", async (req: Request, res: Response): Promise<void> => 
     return;
   }
 
-  // 2. Apply dynamic x402 payment middleware — it handles the 402 response and verification
-  const paymentMw = getPaymentMiddleware(agentId, agent.priceUsdc, agent.agentWalletAddress);
-  await new Promise<void>((resolve, reject) => {
-    paymentMw(req, res, (err?: unknown) => {
-      if (err) reject(err instanceof Error ? err : new Error(String(err)));
-      else resolve();
-    });
-  }).catch(() => {
-    // Payment middleware already sent the 402 or error response — stop here
-    return;
-  });
+  // Internal bypass: platform executor sends X-Internal-Key to skip x402
+  const internalKey = req.headers["x-internal-key"];
+  const isInternal = INTERNAL_KEY && internalKey === INTERNAL_KEY;
 
-  // If res was already sent by the payment middleware (402 or error), bail out
-  if (res.headersSent) return;
+  if (!isInternal) {
+    // 2. Apply dynamic x402 payment middleware
+    const paymentMw = getPaymentMiddleware(agentId, agent.priceUsdc, agent.agentWalletAddress);
+    await new Promise<void>((resolve, reject) => {
+      paymentMw(req, res, (err?: unknown) => {
+        if (err) reject(err instanceof Error ? err : new Error(String(err)));
+        else resolve();
+      });
+    }).catch(() => {
+      return;
+    });
+
+    if (res.headersSent) return;
+  }
 
   // 3. Execute — call Anthropic with system prompt + user input
   const taskId = ethers.hexlify(ethers.randomBytes(32));

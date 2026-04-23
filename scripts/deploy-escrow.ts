@@ -50,12 +50,16 @@ async function main() {
     bytecode: string;
   };
 
+  const taskTokenAddress = process.env.TASK_TOKEN_ADDRESS;
+  if (!taskTokenAddress) throw new Error("TASK_TOKEN_ADDRESS not set — run deploy-token.ts first");
+
   console.log(`\nDeploying SatisfactionEscrow...`);
-  console.log(`  USDC:     ${USDC_FUJI}`);
-  console.log(`  Treasury: ${treasuryAddress}`);
+  console.log(`  USDC:      ${USDC_FUJI}`);
+  console.log(`  TASK:      ${taskTokenAddress}`);
+  console.log(`  Treasury:  ${treasuryAddress}`);
 
   const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, deployer);
-  const contract = await factory.deploy(USDC_FUJI, treasuryAddress);
+  const contract = await factory.deploy(USDC_FUJI, taskTokenAddress, treasuryAddress);
   await contract.waitForDeployment();
 
   const address = await contract.getAddress();

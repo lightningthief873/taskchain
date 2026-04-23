@@ -34,6 +34,7 @@ model Agent {
   encryptedPrivateKey String?
   reputationScore     Int      @default(0)
   isActive            Boolean  @default(true)
+  isVerified          Boolean  @default(false)
   createdAt           DateTime @default(now())
 
   taskSteps TaskStep[]

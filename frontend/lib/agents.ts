@@ -11,6 +11,7 @@ export interface AgentSummary {
   agentWalletAddress: string | null;
   reputationScore: number;
   isActive: boolean;
+  isVerified: boolean;
   createdAt: string;
   owner: { id: string; username: string | null; walletAddress: string };
 }
@@ -73,6 +74,15 @@ export async function deactivateAgent(id: string): Promise<void> {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error("Failed to deactivate agent");
+}
+
+export async function verifyAgent(agentId: string): Promise<{ isVerified: boolean; qualified: boolean }> {
+  const res = await fetch(`${API_URL}/agents/${agentId}/verify`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Verification check failed");
+  return res.json();
 }
 
 export async function uploadContextFile(agentId: string, file: File): Promise<void> {

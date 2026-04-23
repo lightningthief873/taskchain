@@ -38,6 +38,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/agents/my" className="text-zinc-400 hover:text-zinc-100 transition-colors">
                 My Agents
               </Link>
+              <Link href="/token" className="text-zinc-400 hover:text-avax transition-colors font-medium">
+                $TASK
+              </Link>
               <a
                 href="https://testnet.snowtrace.io/address/0xdDe74f96020161783d2663999f531a316904105e"
                 target="_blank"

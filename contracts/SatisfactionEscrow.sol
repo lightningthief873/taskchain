@@ -7,10 +7,12 @@ interface IERC20 {
 }
 
 /// @title SatisfactionEscrow — user-controlled payment release for TaskChain pipelines
-/// @notice User deposits USDC before execution; approves or disputes after reviewing output.
+/// @notice User deposits USDC or TASK before execution; approves or disputes after reviewing output.
+///         Paying in TASK gives a 20% discount on the platform fee (5% → 4%).
 ///         Platform pre-funds agent execution and recoups from escrow on approval.
 contract SatisfactionEscrow {
     IERC20 public immutable usdc;
+    IERC20 public immutable task;
     address public immutable treasury;
 
     uint256 public constant AUTO_RELEASE_DELAY = 72 hours;
@@ -19,17 +21,18 @@ contract SatisfactionEscrow {
     enum EscrowStatus { NONE, FUNDED, APPROVED, DISPUTED, RELEASED }
 
     struct EscrowEntry {
-        address  user;
+        address   user;
         address[] agents;
-        uint256[] amounts;   // per-agent payout (raw USDC micro-units)
-        uint256  total;      // total deposited = sum(amounts) + platform fee
+        uint256[] amounts;
+        uint256   total;
         EscrowStatus status;
-        uint256  deadline;   // auto-release / dispute expiry
+        uint256   deadline;
+        address   paymentToken; // USDC or TASK address
     }
 
     mapping(bytes32 => EscrowEntry) private _escrows;
 
-    event TaskFunded(bytes32 indexed taskId, address indexed user, uint256 amount);
+    event TaskFunded(bytes32 indexed taskId, address indexed user, uint256 amount, address token);
     event TaskApproved(bytes32 indexed taskId);
     event TaskDisputed(bytes32 indexed taskId, string reason);
     event TaskAutoReleased(bytes32 indexed taskId, bool refunded);
@@ -40,41 +43,40 @@ contract SatisfactionEscrow {
     error DeadlineNotReached();
     error InvalidStatus();
 
-    constructor(address _usdc, address _treasury) {
-        usdc = IERC20(_usdc);
+    constructor(address _usdc, address _task, address _treasury) {
+        usdc     = IERC20(_usdc);
+        task     = IERC20(_task);
         treasury = _treasury;
     }
 
-    /// @notice Deposit USDC into escrow for a task.
-    ///   Caller must have approved this contract for `total` first.
-    /// @param taskId    keccak256 hash of the off-chain task ID (bytes32)
-    /// @param agents    agent wallet addresses in pipeline order
-    /// @param amounts   per-agent payout amounts (sum + fee == total)
-    /// @param total     total USDC to lock (sum(amounts) × 1.05, rounded up)
-    function fundTask(
-        bytes32 taskId,
+    // ── Fund ─────────────────────────────────────────────────────────────────
+
+    /// @notice Fund with USDC. Platform fee = 5% (total = sum(amounts) × 1.05).
+    ///   Caller must have approved this contract for `total` USDC first.
+    function fundTaskUSDC(
+        bytes32   taskId,
         address[] calldata agents,
         uint256[] calldata amounts,
-        uint256 total
+        uint256   total
     ) external {
-        if (_escrows[taskId].status != EscrowStatus.NONE) revert AlreadyFunded();
-        require(agents.length == amounts.length, "length mismatch");
-
-        usdc.transferFrom(msg.sender, address(this), total);
-
-        _escrows[taskId] = EscrowEntry({
-            user:     msg.sender,
-            agents:   agents,
-            amounts:  amounts,
-            total:    total,
-            status:   EscrowStatus.FUNDED,
-            deadline: block.timestamp + AUTO_RELEASE_DELAY
-        });
-
-        emit TaskFunded(taskId, msg.sender, total);
+        _fund(taskId, agents, amounts, total, address(usdc));
     }
 
-    /// @notice User approves the output — distributes USDC to agents + treasury.
+    /// @notice Fund with TASK. Platform fee = 4% (20% discount vs USDC).
+    ///   Caller must have approved this contract for `total` TASK first.
+    ///   Amounts and total should be in TASK units (18 decimals).
+    function fundTaskTASK(
+        bytes32   taskId,
+        address[] calldata agents,
+        uint256[] calldata amounts,
+        uint256   total
+    ) external {
+        _fund(taskId, agents, amounts, total, address(task));
+    }
+
+    // ── Approve / Dispute / Auto-release ─────────────────────────────────────
+
+    /// @notice User approves output — distributes tokens to agents + treasury.
     function approveTask(bytes32 taskId) external {
         EscrowEntry storage e = _escrows[taskId];
         if (e.user != msg.sender) revert NotTaskOwner();
@@ -96,9 +98,9 @@ contract SatisfactionEscrow {
         emit TaskDisputed(taskId, reason);
     }
 
-    /// @notice Platform calls this after deadline passes:
-    ///   - If FUNDED for 72h with no action → release to agents
-    ///   - If DISPUTED for 48h with no resolution → refund user
+    /// @notice Platform calls after deadline:
+    ///   - FUNDED for 72h with no action → release to agents
+    ///   - DISPUTED for 48h with no resolution → refund user
     function autoRelease(bytes32 taskId) external {
         EscrowEntry storage e = _escrows[taskId];
         if (e.status != EscrowStatus.FUNDED && e.status != EscrowStatus.DISPUTED)
@@ -107,12 +109,10 @@ contract SatisfactionEscrow {
 
         bool refunded;
         if (e.status == EscrowStatus.DISPUTED) {
-            // Refund user after dispute window
             e.status = EscrowStatus.RELEASED;
-            usdc.transfer(e.user, e.total);
+            IERC20(e.paymentToken).transfer(e.user, e.total);
             refunded = true;
         } else {
-            // No user response after 72h — release to agents
             e.status = EscrowStatus.RELEASED;
             _distribute(e);
             refunded = false;
@@ -120,26 +120,53 @@ contract SatisfactionEscrow {
         emit TaskAutoReleased(taskId, refunded);
     }
 
+    // ── View ─────────────────────────────────────────────────────────────────
+
     /// @notice Read escrow state for a task.
     function getEscrow(bytes32 taskId)
         external view
-        returns (address user, uint256 total, EscrowStatus status, uint256 deadline)
+        returns (address user, uint256 total, EscrowStatus status, uint256 deadline, address paymentToken)
     {
         EscrowEntry storage e = _escrows[taskId];
-        return (e.user, e.total, e.status, e.deadline);
+        return (e.user, e.total, e.status, e.deadline, e.paymentToken);
     }
 
-    // ── internal ──────────────────────────────────────────────────────────────
+    // ── Internal ─────────────────────────────────────────────────────────────
+
+    function _fund(
+        bytes32   taskId,
+        address[] calldata agents,
+        uint256[] calldata amounts,
+        uint256   total,
+        address   token
+    ) internal {
+        if (_escrows[taskId].status != EscrowStatus.NONE) revert AlreadyFunded();
+        require(agents.length == amounts.length, "length mismatch");
+
+        IERC20(token).transferFrom(msg.sender, address(this), total);
+
+        _escrows[taskId] = EscrowEntry({
+            user:         msg.sender,
+            agents:       agents,
+            amounts:      amounts,
+            total:        total,
+            status:       EscrowStatus.FUNDED,
+            deadline:     block.timestamp + AUTO_RELEASE_DELAY,
+            paymentToken: token
+        });
+
+        emit TaskFunded(taskId, msg.sender, total, token);
+    }
 
     function _distribute(EscrowEntry storage e) internal {
+        IERC20 token    = IERC20(e.paymentToken);
         uint256 agentTotal = 0;
         for (uint256 i = 0; i < e.agents.length; i++) {
-            usdc.transfer(e.agents[i], e.amounts[i]);
+            token.transfer(e.agents[i], e.amounts[i]);
             agentTotal += e.amounts[i];
         }
-        // Platform fee = remainder after agent payouts
         if (e.total > agentTotal) {
-            usdc.transfer(treasury, e.total - agentTotal);
+            token.transfer(treasury, e.total - agentTotal);
         }
     }
 }

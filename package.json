@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@openzeppelin/contracts": "^5.6.1",
     "@prisma/client": "^5.22.0",
     "@privy-io/server-auth": "^1.32.5",
     "@types/cors": "^2.8.19",

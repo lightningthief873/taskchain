@@ -18,7 +18,7 @@ const ESCROW_ABI = [
   "function fundTask(bytes32 taskId, address[] calldata agents, uint256[] calldata amounts, uint256 total) external",
   "function approveTask(bytes32 taskId) external",
   "function disputeTask(bytes32 taskId, string calldata reason) external",
-  "function getEscrow(bytes32 taskId) view returns (address user, uint256 total, uint8 status, uint256 deadline)",
+  "function getEscrow(bytes32 taskId) view returns (address user, uint256 total, uint8 status, uint256 deadline, address paymentToken)",
 ];
 
 export function taskId32(taskId: string): string {

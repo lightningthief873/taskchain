@@ -32,8 +32,18 @@ function MarketplaceCard({ agent, inPipeline, onAdd, onViewDetail }: CardProps) 
           onClick={onViewDetail}
           className="text-left flex-1 min-w-0 group"
         >
-          <div className="font-semibold text-zinc-100 group-hover:text-avax transition-colors truncate">
-            {agent.name}
+          <div className="flex items-center gap-1.5">
+            <span className="font-semibold text-zinc-100 group-hover:text-avax transition-colors truncate">
+              {agent.name}
+            </span>
+            {agent.isVerified && (
+              <span
+                title="Verified — owner staked 1000+ TASK"
+                className="text-xs bg-avax/15 text-avax border border-avax/30 rounded px-1.5 py-0.5 shrink-0 font-medium"
+              >
+                ✓ Verified
+              </span>
+            )}
           </div>
           <p className="text-xs text-zinc-500 mt-0.5 line-clamp-2">
             {agent.description ?? "No description"}

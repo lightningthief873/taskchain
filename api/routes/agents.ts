@@ -12,6 +12,13 @@ const RUNNER_BASE = process.env.RUNNER_URL ?? "http://localhost:4000";
 const FUJI_RPC = process.env.FUJI_RPC_URL ?? "https://api.avax-test.network/ext/bc/C/rpc";
 const AGENT_REGISTRY_ADDRESS = process.env.AGENT_REGISTRY_ADDRESS ?? "";
 const DEPLOYER_PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY ?? "";
+const STAKING_ADDRESS = process.env.TASK_STAKING_ADDRESS ?? "";
+
+const STAKING_ABI = [
+  "function getStake(address user) view returns (uint256)",
+  "function isVerifiedStaker(address user) view returns (bool)",
+  "function minStakeVerified() view returns (uint256)",
+];
 
 const REGISTRY_ABI = [
   "function registerAgent(address agent, string calldata metadataURI) external",
@@ -115,6 +122,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
       agentWalletAddress: true,
       reputationScore: true,
       isActive: true,
+      isVerified: true,
       createdAt: true,
       owner: { select: { id: true, username: true, walletAddress: true } },
     },
@@ -148,6 +156,7 @@ router.get("/:id", async (req: Request, res: Response): Promise<void> => {
       agentWalletAddress: true,
       reputationScore: true,
       isActive: true,
+      isVerified: true,
       createdAt: true,
       owner: { select: { id: true, username: true, walletAddress: true } },
     },
@@ -182,7 +191,7 @@ router.put("/:id", requireAuth, async (req: Request, res: Response): Promise<voi
     select: {
       id: true, name: true, description: true, systemPrompt: true, contextText: true,
       priceUsdc: true, endpoint: true, agentWalletAddress: true, reputationScore: true,
-      isActive: true, createdAt: true,
+      isActive: true, isVerified: true, createdAt: true,
     },
   });
   res.json(updated);
@@ -236,6 +245,45 @@ router.post(
     res.json({ success: true, contextLength: contextText.length, agentId: updated.id });
   },
 );
+
+// POST /agents/:id/verify — on-chain staking check → set isVerified if stake >= min
+// Owner-only: reads TaskStaking.getStake(ownerWalletAddress) and updates DB if qualified.
+router.post("/:id/verify", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const agentId = req.params["id"] as string;
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentId },
+    include: { owner: { select: { walletAddress: true } } },
+  });
+  if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+  if (agent.ownerId !== req.user!.userId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  if (!STAKING_ADDRESS) {
+    res.status(503).json({ error: "TASK_STAKING_ADDRESS not configured" });
+    return;
+  }
+
+  const ownerWallet = agent.owner.walletAddress;
+  let verified = false;
+  try {
+    const provider = new ethers.JsonRpcProvider(FUJI_RPC);
+    const staking = new ethers.Contract(STAKING_ADDRESS, STAKING_ABI, provider);
+    verified = (await staking.isVerifiedStaker(ownerWallet)) as boolean;
+  } catch (e) {
+    res.status(502).json({ error: "On-chain check failed: " + (e instanceof Error ? e.message : String(e)) });
+    return;
+  }
+
+  const updated = await prisma.agent.update({
+    where: { id: agentId },
+    data: { isVerified: verified },
+    select: {
+      id: true, name: true, isVerified: true, reputationScore: true,
+      agentWalletAddress: true,
+    },
+  });
+
+  res.json({ ...updated, qualified: verified });
+});
 
 // POST /agents/:id/rate — simple rating for agent after task completion
 // body: { taskId, stars: 1-5, comment }

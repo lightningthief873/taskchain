@@ -18,7 +18,7 @@ export default function LoginPage() {
         if (!accessToken) return;
         const { token } = await verifyPrivyToken(accessToken);
         setStoredToken(token);
-        router.replace("/");
+        router.replace("/marketplace");
       } catch (e) {
         console.error("[login] JWT exchange failed:", e);
       }

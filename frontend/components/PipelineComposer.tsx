@@ -59,7 +59,7 @@ export default function PipelineComposer({
   }
 
   return (
-    <div className="w-72 shrink-0 sticky top-24 self-start border border-zinc-800 rounded-lg bg-zinc-900/60 flex flex-col max-h-[calc(100vh-8rem)] overflow-hidden">
+    <div className="w-full lg:w-72 shrink-0 lg:sticky lg:top-24 self-start border border-zinc-800 rounded-lg bg-zinc-900/60 flex flex-col lg:max-h-[calc(100vh-8rem)] overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
         <span className="text-sm font-semibold text-zinc-100">Pipeline</span>

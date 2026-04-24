@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
 import { listAgents, type AgentSummary } from "@/lib/agents";
 import { createTask, priceDisplay, type PipelineEntry } from "@/lib/tasks";
 import PipelineComposer from "@/components/PipelineComposer";
@@ -148,14 +149,14 @@ export default function MarketplacePage() {
   }
 
   async function handleRun(inputText: string) {
-    if (!token) { alert("Connect your wallet first."); return; }
-    if (pipeline.length === 0) { alert("Add at least one agent to the pipeline."); return; }
+    if (!token) { toast.error("Connect your wallet first."); return; }
+    if (pipeline.length === 0) { toast.error("Add at least one agent to the pipeline."); return; }
     setRunning(true);
     try {
-      const result = await createTask({
-        pipeline,
-        inputPayload: { text: inputText },
-      });
+      const result = await toast.promise(
+        createTask({ pipeline, inputPayload: { text: inputText } }),
+        { loading: "Creating pipeline…", success: "Pipeline created!", error: (e) => e.message },
+      );
       sessionStorage.setItem(
         `escrow:${result.taskId}`,
         JSON.stringify({
@@ -166,8 +167,7 @@ export default function MarketplacePage() {
         }),
       );
       router.push(`/tasks/${result.taskId}`);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to create task");
+    } catch {
       setRunning(false);
     }
   }
@@ -181,9 +181,9 @@ export default function MarketplacePage() {
         </p>
       </div>
 
-      <div className="flex gap-6 items-start">
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
         {/* ── Filters sidebar ── */}
-        <aside className="w-56 shrink-0 sticky top-24 self-start space-y-5">
+        <aside className="w-full lg:w-56 shrink-0 lg:sticky lg:top-24 self-start space-y-5">
           {/* Search */}
           <div>
             <label className="block text-xs text-zinc-500 mb-1.5">Search</label>

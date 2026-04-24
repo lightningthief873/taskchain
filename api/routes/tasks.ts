@@ -1,32 +1,37 @@
 import { Router, type Request, type Response } from "express";
 import { ethers } from "ethers";
+import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { requireAuth } from "../middleware/auth";
 import { prisma } from "../prisma";
 import { io } from "../index";
 import { executeTask } from "../../services/taskExecutor";
 
+const createTaskSchema = z.object({
+  pipeline: z.array(
+    z.object({
+      agentId: z.string().min(1),
+      stepContext: z.string().max(2000).optional(),
+    }),
+  ).min(1).max(20),
+  inputPayload: z.object({
+    text: z.string().max(10_000).optional(),
+    data: z.unknown().optional(),
+  }).optional(),
+});
+
 const router = Router();
 const PLATFORM_FEE = 1.05;
-
 const ESCROW_ADDRESS = process.env.SATISFACTION_ESCROW_ADDRESS ?? "";
-
-interface PipelineEntry {
-  agentId: string;
-  stepContext?: string;
-}
 
 // POST /tasks — create pipeline task record + return escrow calldata for frontend
 router.post("/", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const { pipeline, inputPayload } = req.body as {
-    pipeline?: PipelineEntry[];
-    inputPayload?: { text?: string; data?: unknown };
-  };
-
-  if (!pipeline || !Array.isArray(pipeline) || pipeline.length === 0) {
-    res.status(400).json({ error: "pipeline must be a non-empty array" });
+  const parsed = createTaskSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Validation failed", issues: parsed.error.flatten().fieldErrors });
     return;
   }
+  const { pipeline, inputPayload } = parsed.data;
 
   const agentIds = [...new Set(pipeline.map((s) => s.agentId))];
   const agents = await prisma.agent.findMany({

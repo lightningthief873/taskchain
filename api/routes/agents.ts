@@ -1,9 +1,20 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { ethers } from "ethers";
+import { z } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { prisma } from "../prisma";
 import { encryptPrivateKey } from "../lib/crypto";
+
+const createAgentSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  systemPrompt: z.string().max(10_000).optional(),
+  contextText: z.string().max(50_000).optional(),
+  priceUsdc: z.number().min(0).max(1000),
+});
+
+const updateAgentSchema = createAgentSchema.partial();
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
@@ -43,18 +54,12 @@ async function registerOnChain(agentWalletAddress: string, metadataURI: string) 
 
 // POST /agents — create agent
 router.post("/", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  const { name, description, systemPrompt, contextText, priceUsdc } = req.body as {
-    name?: string;
-    description?: string;
-    systemPrompt?: string;
-    contextText?: string;
-    priceUsdc?: number;
-  };
-
-  if (!name || typeof priceUsdc !== "number" || priceUsdc < 0) {
-    res.status(400).json({ error: "name and priceUsdc (>= 0) are required" });
+  const parsed = createAgentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Validation failed", issues: parsed.error.flatten().fieldErrors });
     return;
   }
+  const { name, description, systemPrompt, contextText, priceUsdc } = parsed.data;
 
   const wallet = ethers.Wallet.createRandom();
   const encKey = encryptPrivateKey(wallet.privateKey);
@@ -175,9 +180,12 @@ router.put("/:id", requireAuth, async (req: Request, res: Response): Promise<voi
   if (!existing) { res.status(404).json({ error: "Agent not found" }); return; }
   if (existing.ownerId !== req.user!.userId) { res.status(403).json({ error: "Forbidden" }); return; }
 
-  const { name, description, systemPrompt, contextText, priceUsdc } = req.body as {
-    name?: string; description?: string; systemPrompt?: string; contextText?: string; priceUsdc?: number;
-  };
+  const parsedUp = updateAgentSchema.safeParse(req.body);
+  if (!parsedUp.success) {
+    res.status(400).json({ error: "Validation failed", issues: parsedUp.error.flatten().fieldErrors });
+    return;
+  }
+  const { name, description, systemPrompt, contextText, priceUsdc } = parsedUp.data;
 
   const updated = await prisma.agent.update({
     where: { id: agentId },

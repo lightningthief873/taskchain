@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import toast from "react-hot-toast";
 import { getTask, submitReview, priceDisplay, type Task, type TaskStep } from "@/lib/tasks";
 import { getStoredToken } from "@/lib/auth";
 import { SNOWTRACE } from "@/lib/config";
@@ -74,8 +75,9 @@ function StepCard({
     try {
       await submitReview(taskId, step.id, rating, comment || undefined);
       setReviewed(true);
+      toast.success("Review submitted!");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Review failed");
+      toast.error(e instanceof Error ? e.message : "Review failed");
     } finally {
       setReviewing(false);
     }
@@ -241,10 +243,13 @@ function EscrowPanel({
         data.totalCostUsdc,
       );
       setStep("done");
+      toast.success("Escrow funded! Pipeline starting…");
       onFunded(txHash);
     } catch (e) {
       setStep("idle");
-      setError(e instanceof Error ? e.message : "Transaction failed");
+      const msg = e instanceof Error ? e.message : "Transaction failed";
+      setError(msg);
+      toast.error(msg);
     }
   }
 
@@ -346,9 +351,12 @@ function ApprovalPanel({
         body: JSON.stringify({ approveTxHash }),
       });
       if (!res.ok) throw new Error(await res.text());
+      toast.success("Payment approved — agents paid!");
       onApproved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Approval failed");
+      const msg = e instanceof Error ? e.message : "Approval failed";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setApproving(false);
     }
@@ -381,10 +389,13 @@ function ApprovalPanel({
         body: JSON.stringify({ reason: disputeReason, disputeTxHash }),
       });
       if (!res.ok) throw new Error(await res.text());
+      toast("Dispute filed. Funds locked for 48 hours.", { icon: "⚠️" });
       setShowDisputeModal(false);
       onDisputed();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Dispute failed");
+      const msg = e instanceof Error ? e.message : "Dispute failed";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setDisputing(false);
     }
@@ -569,6 +580,7 @@ export default function TaskStatusPage() {
     });
 
     socket.on("task:step:failed", ({ stepId }: { stepId: string }) => {
+      toast.error("A step failed — check output below.");
       setTask((prev) => {
         if (!prev) return prev;
         return {
@@ -582,6 +594,7 @@ export default function TaskStatusPage() {
     });
 
     socket.on("task:complete", ({ output }: { output: string }) => {
+      toast.success("Pipeline complete! Review the output below.");
       setTask((prev) =>
         prev
           ? {
@@ -594,10 +607,12 @@ export default function TaskStatusPage() {
     });
 
     socket.on("task:approved", () => {
+      toast.success("Payment released to all agents!");
       setTask((prev) => (prev ? { ...prev, status: "COMPLETE" } : prev));
     });
 
     socket.on("task:disputed", () => {
+      toast("Dispute confirmed. Funds locked 48h.", { icon: "⚠️" });
       setTask((prev) => (prev ? { ...prev, status: "DISPUTED" } : prev));
     });
 

@@ -1,0 +1,13 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "@taskchain_api_url",
+    "NEXT_PUBLIC_PRIVY_APP_ID": "@taskchain_privy_app_id",
+    "NEXT_PUBLIC_FUJI_RPC_URL": "@taskchain_fuji_rpc_url",
+    "NEXT_PUBLIC_ESCROW_ADDRESS": "@taskchain_escrow_address",
+    "NEXT_PUBLIC_TASK_TOKEN_ADDRESS": "@taskchain_task_token_address",
+    "NEXT_PUBLIC_TASK_STAKING_ADDRESS": "@taskchain_task_staking_address"
+  }
+}

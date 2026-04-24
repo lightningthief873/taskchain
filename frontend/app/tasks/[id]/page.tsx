@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { useWallets } from "@privy-io/react-auth";
+import { ethers } from "ethers";
 import toast from "react-hot-toast";
 import { getTask, submitReview, priceDisplay, type Task, type TaskStep } from "@/lib/tasks";
 import { getStoredToken } from "@/lib/auth";
@@ -211,27 +213,28 @@ function EscrowPanel({
   data,
   token,
   onFunded,
+  getEip1193,
 }: {
   taskId: string;
   data: EscrowData;
   token: string | null;
   onFunded: (txHash: string) => void;
+  getEip1193: () => Promise<ethers.Eip1193Provider>;
 }) {
   const [step, setStep] = useState<"idle" | "approving" | "funding" | "done">("idle");
   const [error, setError] = useState<string | null>(null);
 
   async function handleFund() {
     if (!token) { setError("Connect wallet first"); return; }
-    if (!window.ethereum) { setError("No wallet found — install MetaMask or use Privy"); return; }
     if (!data.escrowContract) {
-      // No escrow configured — skip directly to execution
       onFunded("skip");
       return;
     }
     setError(null);
     setStep("approving");
     try {
-      const signer = await getBrowserSigner();
+      const eip1193 = await getEip1193();
+      const signer = await getBrowserSigner(eip1193);
       await approveUSDC(signer, data.escrowContract, BigInt(data.totalCostUsdc));
       setStep("funding");
       const { txHash } = await fundEscrow(
@@ -316,12 +319,14 @@ function ApprovalPanel({
   token,
   onApproved,
   onDisputed,
+  getEip1193,
 }: {
   taskId: string;
   finalOutput: string;
   token: string | null;
   onApproved: () => void;
   onDisputed: () => void;
+  getEip1193: () => Promise<ethers.Eip1193Provider>;
 }) {
   const [approving, setApproving] = useState(false);
   const [disputing, setDisputing] = useState(false);
@@ -336,8 +341,9 @@ function ApprovalPanel({
       let approveTxHash: string | undefined;
 
       // If escrow is configured, sign the on-chain approve tx first
-      if (ESCROW_ADDRESS && window.ethereum) {
-        const signer = await getBrowserSigner();
+      if (ESCROW_ADDRESS) {
+        const eip1193 = await getEip1193();
+        const signer = await getBrowserSigner(eip1193);
         const { txHash } = await approveEscrowTask(signer, ESCROW_ADDRESS, taskId);
         approveTxHash = txHash;
       }
@@ -369,8 +375,9 @@ function ApprovalPanel({
     try {
       let disputeTxHash: string | undefined;
 
-      if (ESCROW_ADDRESS && window.ethereum) {
-        const signer = await getBrowserSigner();
+      if (ESCROW_ADDRESS) {
+        const eip1193 = await getEip1193();
+        const signer = await getBrowserSigner(eip1193);
         const { txHash } = await disputeEscrowTask(
           signer,
           ESCROW_ADDRESS,
@@ -512,6 +519,17 @@ interface EscrowMeta {
 export default function TaskStatusPage() {
   const { id: taskId } = useParams<{ id: string }>();
   const token = getStoredToken();
+  const { wallets } = useWallets();
+
+  async function getEip1193(): Promise<ethers.Eip1193Provider> {
+    const privyWallet = wallets.find((w) => w.walletClientType === "privy") ?? wallets[0];
+    if (privyWallet) {
+      return (await privyWallet.getEthereumProvider()) as ethers.Eip1193Provider;
+    }
+    const win = typeof window !== "undefined" ? (window as unknown as { ethereum?: ethers.Eip1193Provider }) : {};
+    if (win.ethereum) return win.ethereum;
+    throw new Error("No wallet provider found. Connect a wallet first.");
+  }
 
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -704,6 +722,7 @@ export default function TaskStatusPage() {
           data={{ ...escrowMeta, totalCostUsdc: task.totalCostUsdc ?? totalRaw }}
           token={token}
           onFunded={(txHash) => void handleFunded(txHash)}
+          getEip1193={getEip1193}
         />
       )}
 
@@ -754,6 +773,7 @@ export default function TaskStatusPage() {
           onDisputed={() =>
             setTask((prev) => (prev ? { ...prev, status: "DISPUTED" } : prev))
           }
+          getEip1193={getEip1193}
         />
       )}
 

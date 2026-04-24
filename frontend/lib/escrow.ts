@@ -25,8 +25,18 @@ export function taskId32(taskId: string): string {
   return ethers.keccak256(ethers.toUtf8Bytes(taskId));
 }
 
-export async function getBrowserSigner(): Promise<ethers.JsonRpcSigner> {
-  const provider = new ethers.BrowserProvider(window.ethereum as ethers.Eip1193Provider);
+export async function getBrowserSigner(
+  eip1193Provider?: ethers.Eip1193Provider,
+): Promise<ethers.JsonRpcSigner> {
+  const prov =
+    eip1193Provider ??
+    (typeof window !== "undefined" ? (window as unknown as { ethereum?: ethers.Eip1193Provider }).ethereum : undefined);
+  if (!prov) {
+    throw new Error(
+      "No wallet provider found. Use MetaMask or connect with an embedded wallet.",
+    );
+  }
+  const provider = new ethers.BrowserProvider(prov);
   return provider.getSigner();
 }
 

@@ -68,8 +68,9 @@ export async function getTokenStats(userAddress: string): Promise<TokenStats> {
 export async function approveTaskToken(
   spender: string,
   amount: bigint,
+  eip1193Provider?: ethers.Eip1193Provider,
 ): Promise<ethers.TransactionReceipt | null> {
-  const signer = await getBrowserSigner();
+  const signer = await getBrowserSigner(eip1193Provider);
   const token = new ethers.Contract(TASK_TOKEN_ADDRESS, TOKEN_ABI, signer);
   const tx = await (token.approve(spender, amount) as Promise<ethers.TransactionResponse>);
   return tx.wait();
@@ -77,8 +78,9 @@ export async function approveTaskToken(
 
 export async function stakeTask(
   amount: bigint,
+  eip1193Provider?: ethers.Eip1193Provider,
 ): Promise<{ receipt: ethers.TransactionReceipt | null; txHash: string }> {
-  const signer = await getBrowserSigner();
+  const signer = await getBrowserSigner(eip1193Provider);
   const staking = new ethers.Contract(TASK_STAKING_ADDRESS, STAKING_ABI, signer);
   const tx = await (staking.stake(amount) as Promise<ethers.TransactionResponse>);
   const receipt = await tx.wait();
@@ -87,16 +89,19 @@ export async function stakeTask(
 
 export async function unstakeTask(
   amount: bigint,
+  eip1193Provider?: ethers.Eip1193Provider,
 ): Promise<{ receipt: ethers.TransactionReceipt | null; txHash: string }> {
-  const signer = await getBrowserSigner();
+  const signer = await getBrowserSigner(eip1193Provider);
   const staking = new ethers.Contract(TASK_STAKING_ADDRESS, STAKING_ABI, signer);
   const tx = await (staking.unstake(amount) as Promise<ethers.TransactionResponse>);
   const receipt = await tx.wait();
   return { receipt, txHash: tx.hash };
 }
 
-export async function claimStakingRewards(): Promise<{ receipt: ethers.TransactionReceipt | null; txHash: string }> {
-  const signer = await getBrowserSigner();
+export async function claimStakingRewards(
+  eip1193Provider?: ethers.Eip1193Provider,
+): Promise<{ receipt: ethers.TransactionReceipt | null; txHash: string }> {
+  const signer = await getBrowserSigner(eip1193Provider);
   const staking = new ethers.Contract(TASK_STAKING_ADDRESS, STAKING_ABI, signer);
   const tx = await (staking.claimRewards() as Promise<ethers.TransactionResponse>);
   const receipt = await tx.wait();

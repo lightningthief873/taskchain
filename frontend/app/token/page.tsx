@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { ethers } from "ethers";
 import {
   getTokenStats,
@@ -43,7 +43,19 @@ function TxLink({ hash }: { hash: string }) {
 
 export default function TokenPage() {
   const { user, authenticated, login } = usePrivy();
+  const { wallets } = useWallets();
   const walletAddress = (user?.wallet?.address ?? "").toLowerCase();
+
+  async function getEip1193(): Promise<ethers.Eip1193Provider> {
+    // Prefer Privy embedded wallet; fall back to window.ethereum (MetaMask)
+    const privyWallet = wallets.find((w) => w.walletClientType === "privy") ?? wallets[0];
+    if (privyWallet) {
+      return (await privyWallet.getEthereumProvider()) as ethers.Eip1193Provider;
+    }
+    const win = typeof window !== "undefined" ? (window as unknown as { ethereum?: ethers.Eip1193Provider }) : {};
+    if (win.ethereum) return win.ethereum;
+    throw new Error("No wallet provider found. Connect a wallet first.");
+  }
 
   const [stats, setStats] = useState<TokenStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -73,9 +85,10 @@ export default function TokenPage() {
     if (!stakeInput || isNaN(parseFloat(stakeInput))) return;
     setTxBusy(true);
     try {
+      const eip1193 = await getEip1193();
       const amount = ethers.parseUnits(stakeInput, 18);
-      await approveTaskToken(TASK_STAKING_ADDRESS, amount);
-      const { txHash } = await stakeTask(amount);
+      await approveTaskToken(TASK_STAKING_ADDRESS, amount, eip1193);
+      const { txHash } = await stakeTask(amount, eip1193);
       setLastTx(txHash);
       setStakeInput("");
       await loadStats();
@@ -90,8 +103,9 @@ export default function TokenPage() {
     if (!unstakeInput || isNaN(parseFloat(unstakeInput))) return;
     setTxBusy(true);
     try {
+      const eip1193 = await getEip1193();
       const amount = ethers.parseUnits(unstakeInput, 18);
-      const { txHash } = await unstakeTask(amount);
+      const { txHash } = await unstakeTask(amount, eip1193);
       setLastTx(txHash);
       setUnstakeInput("");
       await loadStats();
@@ -105,7 +119,8 @@ export default function TokenPage() {
   async function handleClaim() {
     setTxBusy(true);
     try {
-      const { txHash } = await claimStakingRewards();
+      const eip1193 = await getEip1193();
+      const { txHash } = await claimStakingRewards(eip1193);
       setLastTx(txHash);
       await loadStats();
     } catch (e) {

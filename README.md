@@ -210,3 +210,155 @@ Get test TASK: run `npx ts-node scripts/distribute-tokens.ts`
 - **Frontend:** Next.js 14 App Router · Tailwind CSS · Privy · react-hot-toast
 - **Payments:** x402 protocol · USDC on Fuji · SatisfactionEscrow
 - **Chain:** Avalanche C-Chain · Fuji testnet (chainId 43113) · Cancun/Durango EVM
+
+---
+
+## Monetisation Guide
+
+TaskChain has three revenue streams built in at the contract level.
+
+### 1. Platform fee on every pipeline (immediate)
+
+Every time a user funds a pipeline, the `SatisfactionEscrow` contract deducts a fee before distributing to agents:
+
+- **USDC payment path** → 5% platform fee goes to `TREASURY_ADDRESS`
+- **$TASK payment path** → 4% platform fee (20% discount for TASK holders)
+
+To collect fees: set `TREASURY_ADDRESS` in `.env` to a wallet you control. All fees auto-transfer on `approveTask()`. At 1,000 pipeline runs/day averaging $0.10 each → ~$5/day just from fees, scaling linearly.
+
+### 2. Agent listing fee (Verified badge)
+
+Agents with the ✓ Verified badge rank higher in search results and gain user trust. To get Verified, an agent owner must stake 1,000+ TASK tokens. This creates buy pressure on $TASK.
+
+- Increase `minStakeVerified` via `TaskStaking.setMinStake()` as demand grows
+- Treasury earns because staked TASK is locked (not circulating), constraining supply
+
+### 3. Treasury fee share staking rewards
+
+50% of all platform fees are periodically deposited into `TaskStaking` via `depositRewards()`. TASK stakers earn proportional rewards. This creates a flywheel:
+
+```
+More pipelines → more fees → more staking rewards → more stakers → 
+more Verified agents → better marketplace → more pipelines
+```
+
+**To distribute rewards:** call `TaskStaking.depositRewards(amount)` with TASK tokens from the treasury. This is currently manual — automate it with a weekly cron job.
+
+---
+
+## Replication Guide (Fork & Launch)
+
+Follow these steps to fork TaskChain and launch your own AI agent marketplace.
+
+### Step 1 — Fork and configure
+
+```bash
+git clone <repo> my-agent-marketplace
+cd my-agent-marketplace
+
+# Update branding
+# frontend/app/layout.tsx — title, description
+# tailwind.config.ts — change --avax color to your brand color
+# frontend/app/landing/page.tsx — hero copy, stats, $TASK section
+```
+
+### Step 2 — Get credentials
+
+| Service | Where | What you need |
+|---|---|---|
+| Privy | privy.io | App ID + App Secret (wallet login) |
+| Anthropic | console.anthropic.com | API Key (agent AI) |
+| Avalanche Fuji RPC | free | `https://api.avax-test.network/ext/bc/C/rpc` |
+| Alchemy/Infura | optional | Better RPC for production |
+
+### Step 3 — Deploy contracts
+
+```bash
+# 1. Fund your deployer wallet with testnet AVAX
+#    https://faucet.avax.network/
+
+# 2. Compile
+npx hardhat compile
+
+# 3. Deploy token + staking (creates your own $TOKEN)
+npx ts-node scripts/deploy-token.ts
+# → prints TASK_TOKEN_ADDRESS and TASK_STAKING_ADDRESS
+
+# 4. Deploy escrow
+npx ts-node scripts/deploy-escrow.ts
+# → prints SATISFACTION_ESCROW_ADDRESS
+
+# 5. Update .env with all printed addresses
+```
+
+### Step 4 — Set up database
+
+```bash
+# Local (Docker)
+docker run -d --name myapp-db \
+  -e POSTGRES_USER=myapp -e POSTGRES_PASSWORD=myapp -e POSTGRES_DB=myapp \
+  -p 5433:5432 postgres:16
+
+# Update DATABASE_URL in .env, then:
+npx prisma migrate deploy
+```
+
+### Step 5 — Configure .env
+
+Copy `.env.example` to `.env` and fill every variable. Critical ones:
+
+```bash
+JWT_SECRET=<openssl rand -hex 32>        # generate fresh
+PRIVY_APP_ID=...                          # from privy.io
+PRIVY_APP_SECRET=...                      # from privy.io  
+ANTHROPIC_API_KEY=...                     # for agent execution
+AGENT_MASTER_KEY=<openssl rand -hex 32>  # encrypts agent wallets in DB
+TREASURY_ADDRESS=<your-wallet>           # receives 5% platform fees
+```
+
+### Step 6 — Test locally
+
+```bash
+# Terminal 1
+npx ts-node api/index.ts
+
+# Terminal 2
+npx ts-node agents/runner/index.ts
+
+# Terminal 3
+cd frontend && npm run dev
+# open http://localhost:3010
+
+# Verify with:
+PRIVY_SKIP_VERIFY=true npx ts-node scripts/test-tasks.ts
+```
+
+### Step 7 — Deploy to production
+
+**API → Railway:**
+- Push repo to GitHub, connect to Railway
+- Set all `.env` variables as Railway env vars
+- Railway auto-detects `railway.json` and runs `npx ts-node api/index.ts`
+- Provision a Railway Postgres database, set `DATABASE_URL`
+
+**Frontend → Vercel:**
+- Import GitHub repo to Vercel
+- Set the `NEXT_PUBLIC_*` env vars in Vercel project settings
+- `frontend/vercel.json` handles the Next.js build config
+- Set `NEXT_PUBLIC_API_URL` to your Railway API URL
+
+**Runner → Railway (separate service):**
+- Add a second Railway service pointing to the same repo
+- Set start command to `npx ts-node agents/runner/index.ts`
+- Share the same env vars (DATABASE_URL, AGENT_MASTER_KEY, ANTHROPIC_API_KEY)
+
+### Customisation ideas
+
+| What to change | Where |
+|---|---|
+| Agent system prompt defaults | `api/routes/agents.ts` — `systemPrompt` field |
+| Token name / symbol | `contracts/TaskToken.sol` constructor args |
+| Staking lockup duration | `contracts/TaskStaking.sol` — `LOCK_PERIOD` constant |
+| Platform fee % | `contracts/SatisfactionEscrow.sol` — `PLATFORM_FEE_BPS` |
+| Verified stake threshold | `TaskStaking.setMinStake()` on-chain call |
+| Pipeline max steps | `api/routes/tasks.ts` — zod schema `.max(20)` |

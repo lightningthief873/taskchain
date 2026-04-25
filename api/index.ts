@@ -10,6 +10,7 @@ import usersRouter from "./routes/users";
 import agentsRouter from "./routes/agents";
 import tasksRouter from "./routes/tasks";
 import adminRouter from "./routes/admin";
+import faucetRouter from "./routes/faucet";
 
 const app = express();
 const httpServer = createServer(app);
@@ -66,6 +67,7 @@ app.use("/users", usersRouter);
 app.use("/agents", agentsRouter);
 app.use("/tasks", taskCreateLimiter, tasksRouter);
 app.use("/admin", adminRouter);
+app.use("/faucet", faucetRouter);
 
 const PORT = parseInt(process.env.API_PORT ?? "3005", 10);
 httpServer.listen(PORT, () => console.log(`[api] TaskChain API listening on port ${PORT}`));

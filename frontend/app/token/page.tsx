@@ -13,6 +13,7 @@ import {
   TASK_STAKING_ADDRESS,
   type TokenStats,
 } from "@/lib/token";
+import { getStoredToken } from "@/lib/auth";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,7 @@ export default function TokenPage() {
   const [unstakeInput, setUnstakeInput] = useState("");
   const [txBusy, setTxBusy] = useState(false);
   const [lastTx, setLastTx] = useState<string | null>(null);
+  const [faucetMsg, setFaucetMsg] = useState<string | null>(null);
 
   const loadStats = useCallback(async () => {
     if (!walletAddress) return;
@@ -83,10 +85,14 @@ export default function TokenPage() {
 
   async function handleStake() {
     if (!stakeInput || isNaN(parseFloat(stakeInput))) return;
+    const amount = ethers.parseUnits(stakeInput, 18);
+    if (stats && amount > stats.yourBalance) {
+      alert(`Insufficient TASK balance. You have ${formatTask(stats.yourBalance)} TASK but tried to stake ${stakeInput}.\n\nGet TASK tokens first — ask the treasury or use the faucet.`);
+      return;
+    }
     setTxBusy(true);
     try {
       const eip1193 = await getEip1193();
-      const amount = ethers.parseUnits(stakeInput, 18);
       await approveTaskToken(TASK_STAKING_ADDRESS, amount, eip1193);
       const { txHash } = await stakeTask(amount, eip1193);
       setLastTx(txHash);
@@ -125,6 +131,28 @@ export default function TokenPage() {
       await loadStats();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Claim failed");
+    } finally {
+      setTxBusy(false);
+    }
+  }
+
+  async function handleFaucet() {
+    const token = getStoredToken();
+    if (!token) { setFaucetMsg("Connect wallet first — token not ready yet. Try again in a second."); return; }
+    setTxBusy(true);
+    setFaucetMsg(null);
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3005";
+      const res = await fetch(`${API_URL}/faucet/task`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json() as { success?: boolean; txHash?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Faucet request failed");
+      setFaucetMsg(`1,000 TASK sent! Tx: ${data.txHash?.slice(0, 18)}…`);
+      await loadStats();
+    } catch (e) {
+      setFaucetMsg(e instanceof Error ? e.message : "Faucet failed");
     } finally {
       setTxBusy(false);
     }
@@ -188,6 +216,7 @@ export default function TokenPage() {
               <StatCard
                 label="Your Balance"
                 value={formatTask(stats.yourBalance) + " TASK"}
+                sub={stats.yourBalance === BigInt(0) ? "No TASK — get from treasury" : undefined}
               />
               <StatCard
                 label="Your Staked"
@@ -294,6 +323,23 @@ export default function TokenPage() {
               Last tx: <TxLink hash={lastTx} />
             </div>
           )}
+
+          {/* ── Testnet Faucet ── */}
+          <div className="bg-zinc-900/60 border border-zinc-800 rounded-lg p-5 flex items-center justify-between gap-4">
+            <div>
+              <h2 className="font-semibold text-zinc-100">Testnet Faucet</h2>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                {faucetMsg ?? "Claim 1,000 TASK from the treasury — once per 24 hours per wallet."}
+              </p>
+            </div>
+            <button
+              onClick={() => void handleFaucet()}
+              disabled={txBusy}
+              className="px-5 py-2 bg-avax text-white rounded text-sm font-medium disabled:opacity-50 shrink-0"
+            >
+              {txBusy ? "…" : "Get 1,000 TASK"}
+            </button>
+          </div>
 
           {/* ── How to get TASK ── */}
           <div className="border border-zinc-800 rounded-lg p-6 space-y-4">

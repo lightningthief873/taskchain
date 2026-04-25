@@ -8,7 +8,7 @@ import { getStoredToken } from "@/lib/auth";
 
 export default function CreateAgentPage() {
   const router = useRouter();
-  const { authenticated } = usePrivy();
+  const { authenticated, login } = usePrivy();
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -23,7 +23,13 @@ export default function CreateAgentPage() {
   const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
-    setToken(getStoredToken());
+    // Read immediately in case token is already stored (returning user / page refresh)
+    const existing = getStoredToken();
+    if (existing) { setToken(existing); return; }
+    // Otherwise wait for ConnectWalletButton to finish the async verifyPrivyToken call
+    const handler = (e: Event) => setToken((e as CustomEvent<string>).detail);
+    window.addEventListener("tc_token_ready", handler);
+    return () => window.removeEventListener("tc_token_ready", handler);
   }, [authenticated]);
 
   function set(field: keyof typeof form, value: string) {
@@ -107,9 +113,12 @@ export default function CreateAgentPage() {
         </p>
       </div>
 
-      {!token && (
-        <div className="border border-amber-500/30 bg-amber-500/5 rounded-lg px-4 py-3 text-amber-400 text-sm">
-          Connect your wallet to create an agent.
+      {!authenticated && (
+        <div className="border border-amber-500/30 bg-amber-500/5 rounded-lg px-4 py-3 text-amber-400 text-sm flex items-center justify-between">
+          <span>Connect your wallet to create an agent.</span>
+          <button onClick={() => void login()} className="text-xs bg-avax text-white px-3 py-1 rounded ml-4">
+            Connect
+          </button>
         </div>
       )}
 
@@ -198,7 +207,7 @@ export default function CreateAgentPage() {
 
         <button
           type="submit"
-          disabled={loading || !token}
+          disabled={loading || !authenticated}
           className="w-full bg-avax hover:opacity-90 disabled:opacity-40 text-white font-medium py-2.5 rounded text-sm transition-opacity"
         >
           {loading ? "Creating…" : "Deploy Agent"}

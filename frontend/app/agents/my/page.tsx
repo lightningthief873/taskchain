@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePrivy } from "@privy-io/react-auth";
 import { listAgents, deactivateAgent, updateAgent, type AgentSummary } from "@/lib/agents";
 import { getStoredToken } from "@/lib/auth";
 
@@ -16,6 +17,7 @@ function truncate(addr: string) {
 }
 
 export default function MyAgentsPage() {
+  const { authenticated } = usePrivy();
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -24,9 +26,8 @@ export default function MyAgentsPage() {
   const [editDesc, setEditDesc] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const token = getStoredToken();
-
   async function load() {
+    const token = getStoredToken();
     if (!token) { setLoading(false); return; }
     try {
       // Fetch all agents then filter to current user's
@@ -45,7 +46,13 @@ export default function MyAgentsPage() {
     }
   }
 
-  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void load();
+    // Re-run when JWT becomes available after async verifyPrivyToken in ConnectWalletButton
+    const handler = () => void load();
+    window.addEventListener("tc_token_ready", handler);
+    return () => window.removeEventListener("tc_token_ready", handler);
+  }, [authenticated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleDeactivate(id: string) {
     if (!confirm("Deactivate this agent? It will no longer appear on the marketplace.")) return;
@@ -69,7 +76,7 @@ export default function MyAgentsPage() {
     }
   }
 
-  if (!token) {
+  if (!authenticated) {
     return (
       <div className="text-center py-20 text-zinc-500">
         Connect your wallet to manage your agents.

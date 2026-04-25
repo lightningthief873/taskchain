@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { usePrivy } from "@privy-io/react-auth";
 import { createAgent, uploadContextFile } from "@/lib/agents";
 import { getStoredToken } from "@/lib/auth";
 
 export default function CreateAgentPage() {
   const router = useRouter();
+  const { authenticated } = usePrivy();
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -18,8 +20,11 @@ export default function CreateAgentPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ id: string; walletAddress: string } | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
-  const token = getStoredToken();
+  useEffect(() => {
+    setToken(getStoredToken());
+  }, [authenticated]);
 
   function set(field: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [field]: value }));

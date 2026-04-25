@@ -1,12 +1,9 @@
-/**
- * Frontend helpers for interacting with SatisfactionEscrow on Fuji.
- *
- * Requires window.ethereum or a Privy embedded wallet provider.
- * All amounts in raw USDC micro-units (6 decimals).
- */
 import { ethers } from "ethers";
 
 export const USDC_ADDRESS = "0x5425890298aed601595a70AB815c96711a31Bc65";
+export const TASK_TOKEN_ADDRESS = process.env.NEXT_PUBLIC_TASK_TOKEN_ADDRESS ?? "";
+
+export type PaymentCurrency = "USDC" | "TASK" | "ETH";
 
 const USDC_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
@@ -14,8 +11,15 @@ const USDC_ABI = [
   "function balanceOf(address account) view returns (uint256)",
 ];
 
+const TASK_ABI = [
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function balanceOf(address account) view returns (uint256)",
+];
+
 const ESCROW_ABI = [
-  "function fundTask(bytes32 taskId, address[] calldata agents, uint256[] calldata amounts, uint256 total) external",
+  "function fundTaskUSDC(bytes32 taskId, address[] calldata agents, uint256[] calldata amounts, uint256 total) external",
+  "function fundTaskTASK(bytes32 taskId, address[] calldata agents, uint256[] calldata amounts, uint256 total) external",
+  "function fundTaskETH(bytes32 taskId, address[] calldata agents, uint256[] calldata amounts, uint256 total) external payable",
   "function approveTask(bytes32 taskId) external",
   "function disputeTask(bytes32 taskId, string calldata reason) external",
   "function getEscrow(bytes32 taskId) view returns (address user, uint256 total, uint8 status, uint256 deadline, address paymentToken)",
@@ -50,6 +54,16 @@ export async function approveUSDC(
   return tx.wait();
 }
 
+export async function approveTaskForEscrow(
+  signer: ethers.JsonRpcSigner,
+  escrowAddress: string,
+  amount: bigint,
+): Promise<ethers.TransactionReceipt | null> {
+  const token = new ethers.Contract(TASK_TOKEN_ADDRESS, TASK_ABI, signer);
+  const tx = await (token.approve(escrowAddress, amount) as Promise<ethers.TransactionResponse>);
+  return tx.wait();
+}
+
 export async function fundEscrow(
   signer: ethers.JsonRpcSigner,
   escrowAddress: string,
@@ -57,18 +71,26 @@ export async function fundEscrow(
   agentAddresses: string[],
   agentAmounts: number[],
   totalAmount: number,
+  currency: PaymentCurrency = "USDC",
 ): Promise<{ receipt: ethers.TransactionReceipt | null; txHash: string }> {
   const escrow = new ethers.Contract(escrowAddress, ESCROW_ABI, signer);
   const id32 = taskId32(taskId);
-  const amounts = agentAmounts.map((a) => BigInt(a));
-  const total = BigInt(totalAmount);
 
-  const tx = await (escrow.fundTask(
-    id32,
-    agentAddresses,
-    amounts,
-    total,
-  ) as Promise<ethers.TransactionResponse>);
+  // TASK uses 18 decimals; USDC/ETH amounts come in as USDC micro-units (6 dec).
+  // Multiply by 10^12 to convert 6-decimal values to 18-decimal equivalents.
+  const scale = currency === "TASK" || currency === "ETH" ? BigInt(10 ** 12) : BigInt(1);
+  const amounts = agentAmounts.map((a) => BigInt(a) * scale);
+  const total = BigInt(totalAmount) * scale;
+
+  let tx: ethers.TransactionResponse;
+  if (currency === "ETH") {
+    tx = await (escrow.fundTaskETH(id32, agentAddresses, amounts, total, { value: total }) as Promise<ethers.TransactionResponse>);
+  } else if (currency === "TASK") {
+    tx = await (escrow.fundTaskTASK(id32, agentAddresses, amounts, total) as Promise<ethers.TransactionResponse>);
+  } else {
+    tx = await (escrow.fundTaskUSDC(id32, agentAddresses, amounts, total) as Promise<ethers.TransactionResponse>);
+  }
+
   const receipt = await tx.wait();
   return { receipt, txHash: tx.hash };
 }

@@ -47,9 +47,9 @@ export default function TokenPage() {
   const walletAddress = (user?.wallet?.address ?? "").toLowerCase();
 
   async function getEip1193(): Promise<ethers.Eip1193Provider> {
-    // Prefer Privy embedded wallet; fall back to window.ethereum (MetaMask)
     const privyWallet = wallets.find((w) => w.walletClientType === "privy") ?? wallets[0];
     if (privyWallet) {
+      await privyWallet.switchChain(43113); // ensure Fuji testnet
       return (await privyWallet.getEthereumProvider()) as ethers.Eip1193Provider;
     }
     const win = typeof window !== "undefined" ? (window as unknown as { ethereum?: ethers.Eip1193Provider }) : {};

@@ -1,21 +1,20 @@
-# Backend agents + facilitator + API — shared image, command overridden per service in docker-compose.yml
+# Backend services — API, Runner, Facilitator all use this image.
+# Command is overridden per service in docker-compose.yml.
 FROM node:20-alpine
 
-# curl for docker healthchecks
-RUN apk add --no-cache curl
+# curl for healthchecks; openssl required by Prisma query engine on Alpine
+RUN apk add --no-cache curl openssl
 
 WORKDIR /app
 
-# Copy Prisma schema before npm ci so postinstall can generate the client
+# Copy Prisma schema first so prisma generate runs during npm ci
 COPY package*.json ./
 COPY prisma ./prisma
 
-# Install all deps (devDeps needed: ts-node, typescript, hardhat types)
-# Prisma postinstall will auto-run `prisma generate` after npm ci
-RUN npm ci
+# Install all deps (includes ts-node, typescript — needed at runtime)
+RUN npm install
 
-# Copy remaining source (frontend/ and .env excluded via .dockerignore)
+# Copy the rest of the source
 COPY . .
 
-# Default command — overridden by docker-compose for each service
-CMD ["npx", "ts-node", "--project", "tsconfig.json", "agents/router/index.ts"]
+CMD ["npx", "ts-node", "api/index.ts"]

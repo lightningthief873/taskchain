@@ -7,9 +7,9 @@ interface IERC20 {
 }
 
 /// @title SatisfactionEscrow — user-controlled payment release for TaskChain pipelines
-/// @notice User deposits USDC or TASK before execution; approves or disputes after reviewing output.
+/// @notice User deposits USDC, TASK, or native AVAX before execution; approves or disputes after.
 ///         Paying in TASK gives a 20% discount on the platform fee (5% → 4%).
-///         Platform pre-funds agent execution and recoups from escrow on approval.
+///         address(0) is used as paymentToken to represent native AVAX/ETH.
 contract SatisfactionEscrow {
     IERC20 public immutable usdc;
     IERC20 public immutable task;
@@ -27,7 +27,7 @@ contract SatisfactionEscrow {
         uint256   total;
         EscrowStatus status;
         uint256   deadline;
-        address   paymentToken; // USDC or TASK address
+        address   paymentToken; // USDC addr, TASK addr, or address(0) for native AVAX
     }
 
     mapping(bytes32 => EscrowEntry) private _escrows;
@@ -52,7 +52,6 @@ contract SatisfactionEscrow {
     // ── Fund ─────────────────────────────────────────────────────────────────
 
     /// @notice Fund with USDC. Platform fee = 5% (total = sum(amounts) × 1.05).
-    ///   Caller must have approved this contract for `total` USDC first.
     function fundTaskUSDC(
         bytes32   taskId,
         address[] calldata agents,
@@ -63,8 +62,7 @@ contract SatisfactionEscrow {
     }
 
     /// @notice Fund with TASK. Platform fee = 4% (20% discount vs USDC).
-    ///   Caller must have approved this contract for `total` TASK first.
-    ///   Amounts and total should be in TASK units (18 decimals).
+    ///   Amounts and total in TASK units (18 decimals).
     function fundTaskTASK(
         bytes32   taskId,
         address[] calldata agents,
@@ -72,6 +70,31 @@ contract SatisfactionEscrow {
         uint256   total
     ) external {
         _fund(taskId, agents, amounts, total, address(task));
+    }
+
+    /// @notice Fund with native AVAX. Platform fee = 5%.
+    ///   Send exact `total` wei as msg.value; amounts are in wei.
+    function fundTaskETH(
+        bytes32   taskId,
+        address[] calldata agents,
+        uint256[] calldata amounts,
+        uint256   total
+    ) external payable {
+        if (_escrows[taskId].status != EscrowStatus.NONE) revert AlreadyFunded();
+        require(agents.length == amounts.length, "length mismatch");
+        require(msg.value == total, "ETH amount mismatch");
+
+        _escrows[taskId] = EscrowEntry({
+            user:         msg.sender,
+            agents:       agents,
+            amounts:      amounts,
+            total:        total,
+            status:       EscrowStatus.FUNDED,
+            deadline:     block.timestamp + AUTO_RELEASE_DELAY,
+            paymentToken: address(0)
+        });
+
+        emit TaskFunded(taskId, msg.sender, total, address(0));
     }
 
     // ── Approve / Dispute / Auto-release ─────────────────────────────────────
@@ -110,7 +133,7 @@ contract SatisfactionEscrow {
         bool refunded;
         if (e.status == EscrowStatus.DISPUTED) {
             e.status = EscrowStatus.RELEASED;
-            IERC20(e.paymentToken).transfer(e.user, e.total);
+            _transferOut(e.paymentToken, e.user, e.total);
             refunded = true;
         } else {
             e.status = EscrowStatus.RELEASED;
@@ -159,14 +182,24 @@ contract SatisfactionEscrow {
     }
 
     function _distribute(EscrowEntry storage e) internal {
-        IERC20 token    = IERC20(e.paymentToken);
         uint256 agentTotal = 0;
         for (uint256 i = 0; i < e.agents.length; i++) {
-            token.transfer(e.agents[i], e.amounts[i]);
+            _transferOut(e.paymentToken, e.agents[i], e.amounts[i]);
             agentTotal += e.amounts[i];
         }
         if (e.total > agentTotal) {
-            token.transfer(treasury, e.total - agentTotal);
+            _transferOut(e.paymentToken, treasury, e.total - agentTotal);
         }
     }
+
+    function _transferOut(address token, address to, uint256 amount) internal {
+        if (token == address(0)) {
+            (bool ok,) = payable(to).call{value: amount}("");
+            require(ok, "ETH transfer failed");
+        } else {
+            IERC20(token).transfer(to, amount);
+        }
+    }
+
+    receive() external payable {}
 }

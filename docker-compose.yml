@@ -1,158 +1,121 @@
-# Shared config for all backend agent containers
-x-backend: &backend
-  build:
-    context: .
-    dockerfile: Dockerfile
-  env_file: .env
-  restart: unless-stopped
-  networks:
-    - taskchain
-
-# Shared healthcheck template (port injected per service)
-x-healthcheck: &hc-defaults
-  interval: 12s
-  timeout: 6s
-  retries: 5
-  start_period: 45s
-
 services:
-  # ── PostgreSQL database ────────────────────────────────────────────────────
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: taskchain-db
     environment:
       POSTGRES_USER: taskchain
       POSTGRES_PASSWORD: taskchain
       POSTGRES_DB: taskchain
     ports:
-      - "5432:5432"
+      - "5433:5432"       # 5433 on host to avoid conflicts with local Postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
       test: ["CMD-SHELL", "pg_isready -U taskchain"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
-    networks:
-      - taskchain
 
-  # ── Backend API (auth + user profiles + agent marketplace) — port 3005 ────
+  # ── Express API — port 3005 ─────────────────────────────────────────────────
   api:
-    <<: *backend
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: taskchain-api
-    command:
-      - sh
-      - -c
-      - "npx prisma migrate deploy && npx ts-node --project tsconfig.json api/index.ts"
+    command: >
+      sh -c "npx prisma migrate deploy &&
+             npx ts-node api/index.ts"
     ports:
       - "3005:3005"
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://taskchain:taskchain@db:5432/taskchain
-      JWT_SECRET: ${JWT_SECRET:-taskchain-dev-secret-change-in-prod}
-      PRIVY_APP_ID: ${PRIVY_APP_ID:-}
-      PRIVY_APP_SECRET: ${PRIVY_APP_SECRET:-}
-      PRIVY_SKIP_VERIFY: ${PRIVY_SKIP_VERIFY:-false}
-      AGENT_MASTER_KEY: ${AGENT_MASTER_KEY:-}
       RUNNER_URL: http://runner:4000
+      PORT: "3005"
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      <<: *hc-defaults
       test: ["CMD", "curl", "-fs", "http://localhost:3005/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+    restart: unless-stopped
 
-  # ── Unified AgentRunner (all user-created agents) — port 4000 ─────────────
+  # ── Agent Runner — port 4000 ────────────────────────────────────────────────
   runner:
-    <<: *backend
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: taskchain-runner
-    command: ["npx", "ts-node", "--project", "tsconfig.json", "agents/runner/index.ts"]
+    command: ["npx", "ts-node", "agents/runner/index.ts"]
     ports:
       - "4000:4000"
+    env_file: .env
     environment:
       DATABASE_URL: postgresql://taskchain:taskchain@db:5432/taskchain
-      PAYMENT_FACILITATOR_URL: http://facilitator:4021
-      AGENT_MASTER_KEY: ${AGENT_MASTER_KEY:-}
       RUNNER_PORT: "4000"
+      PAYMENT_FACILITATOR_URL: http://facilitator:4021
     depends_on:
       db:
         condition: service_healthy
-      facilitator:
-        condition: service_healthy
     healthcheck:
-      <<: *hc-defaults
       test: ["CMD", "curl", "-fs", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+    restart: unless-stopped
 
-  # ── Local x402 facilitator (USDC settlement on Fuji) ──────────────────────
+  # ── x402 Facilitator — port 4021 ───────────────────────────────────────────
   facilitator:
-    <<: *backend
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: taskchain-facilitator
-    command: ["npx", "ts-node", "--project", "tsconfig.json", "x402/facilitator.ts"]
+    command: ["npx", "ts-node", "x402/facilitator.ts"]
     ports:
       - "4021:4021"
+    env_file: .env
     healthcheck:
-      <<: *hc-defaults
       test: ["CMD", "curl", "-fs", "http://localhost:4021/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    restart: unless-stopped
 
-  # ── Router agent (port 3000) ───────────────────────────────────────────────
-  router:
-    <<: *backend
-    container_name: taskchain-router
-    command: ["npx", "ts-node", "--project", "tsconfig.json", "agents/router/index.ts"]
-    ports:
-      - "3000:3000"
-    environment:
-      PAYMENT_FACILITATOR_URL: http://facilitator:4021
-      # Legacy hardcoded agents still referenced by router — set to runner for passthrough
-      TRANSLATOR_URL: http://runner:4000
-      ANALYZER_URL: http://runner:4000
-      WRITER_URL: http://runner:4000
-    depends_on:
-      runner:
-        condition: service_healthy
-      facilitator:
-        condition: service_healthy
-    healthcheck:
-      <<: *hc-defaults
-      start_period: 60s
-      test: ["CMD", "curl", "-fs", "http://localhost:3000/health"]
-
-  # ── Next.js frontend (port 3010) ───────────────────────────────────────────
+  # ── Next.js Frontend — port 3010 ────────────────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_PRIVY_APP_ID: ${NEXT_PUBLIC_PRIVY_APP_ID:-}
+        # These are baked into the JS bundle at build time.
+        # NEXT_PUBLIC_API_URL must be the URL your *browser* can reach (not Docker-internal).
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3005}
-        NEXT_PUBLIC_FUJI_RPC: https://api.avax-test.network/ext/bc/C/rpc
-        NEXT_PUBLIC_AGENT_REGISTRY: "0xdDe74f96020161783d2663999f531a316904105e"
-        NEXT_PUBLIC_ROUTER_URL: http://localhost:3000
+        NEXT_PUBLIC_PRIVY_APP_ID: ${NEXT_PUBLIC_PRIVY_APP_ID:-}
+        NEXT_PUBLIC_FUJI_RPC_URL: ${NEXT_PUBLIC_FUJI_RPC_URL:-https://api.avax-test.network/ext/bc/C/rpc}
+        NEXT_PUBLIC_ESCROW_ADDRESS: ${NEXT_PUBLIC_ESCROW_ADDRESS:-}
+        NEXT_PUBLIC_TASK_TOKEN_ADDRESS: ${NEXT_PUBLIC_TASK_TOKEN_ADDRESS:-}
+        NEXT_PUBLIC_TASK_STAKING_ADDRESS: ${NEXT_PUBLIC_TASK_STAKING_ADDRESS:-}
     container_name: taskchain-frontend
     ports:
       - "3010:3010"
-    environment:
-      ROUTER_URL: http://router:3000
-      API_URL: http://api:3005
     depends_on:
-      router:
-        condition: service_healthy
       api:
         condition: service_healthy
     healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:3010"]
       interval: 15s
       timeout: 10s
       retries: 5
       start_period: 90s
-      test: ["CMD", "curl", "-fs", "http://localhost:3010/"]
     restart: unless-stopped
-    networks:
-      - taskchain
-
-networks:
-  taskchain:
-    driver: bridge
 
 volumes:
   postgres_data:

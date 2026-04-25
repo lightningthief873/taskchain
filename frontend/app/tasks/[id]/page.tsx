@@ -13,9 +13,11 @@ import { joinTaskRoom, leaveTaskRoom } from "@/lib/socket";
 import {
   getBrowserSigner,
   approveUSDC,
+  approveTaskForEscrow,
   fundEscrow,
   approveEscrowTask,
   disputeEscrowTask,
+  type PaymentCurrency,
 } from "@/lib/escrow";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3005";
@@ -208,6 +210,12 @@ interface EscrowData {
   totalCostUsdc: number;
 }
 
+const CURRENCY_INFO: Record<PaymentCurrency, { label: string; fee: string; note: string }> = {
+  USDC: { label: "USDC", fee: "5%", note: "Requires Fuji testnet USDC" },
+  TASK: { label: "TASK", fee: "4%", note: "20% fee discount for TASK holders" },
+  ETH:  { label: "AVAX", fee: "5%", note: "Pay with native AVAX on Fuji" },
+};
+
 function EscrowPanel({
   taskId,
   data,
@@ -221,29 +229,32 @@ function EscrowPanel({
   onFunded: (txHash: string) => void;
   getEip1193: () => Promise<ethers.Eip1193Provider>;
 }) {
+  const [currency, setCurrency] = useState<PaymentCurrency>("USDC");
   const [step, setStep] = useState<"idle" | "approving" | "funding" | "done">("idle");
   const [error, setError] = useState<string | null>(null);
 
   async function handleFund() {
     if (!token) { setError("Connect wallet first"); return; }
-    if (!data.escrowContract) {
-      onFunded("skip");
-      return;
-    }
+    if (!data.escrowContract) { onFunded("skip"); return; }
     setError(null);
     setStep("approving");
     try {
       const eip1193 = await getEip1193();
       const signer = await getBrowserSigner(eip1193);
-      await approveUSDC(signer, data.escrowContract, BigInt(data.totalCostUsdc));
+      const scale = currency === "TASK" || currency === "ETH" ? BigInt(10 ** 12) : BigInt(1);
+      const total = BigInt(data.totalCostUsdc) * scale;
+
+      if (currency === "USDC") {
+        await approveUSDC(signer, data.escrowContract, total);
+      } else if (currency === "TASK") {
+        await approveTaskForEscrow(signer, data.escrowContract, total);
+      }
+      // ETH needs no approve step
+
       setStep("funding");
       const { txHash } = await fundEscrow(
-        signer,
-        data.escrowContract,
-        taskId,
-        data.agentAddresses,
-        data.agentAmounts,
-        data.totalCostUsdc,
+        signer, data.escrowContract, taskId,
+        data.agentAddresses, data.agentAmounts, data.totalCostUsdc, currency,
       );
       setStep("done");
       toast.success("Escrow funded! Pipeline starting…");
@@ -256,10 +267,11 @@ function EscrowPanel({
     }
   }
 
+  const approveLabel = currency === "ETH" ? "Funding escrow…" : "Step 1/2: Approving…";
   const labels = {
-    idle: "Fund Escrow & Start",
-    approving: "Step 1/2: Approving USDC…",
-    funding: "Step 2/2: Funding escrow…",
+    idle: `Fund with ${CURRENCY_INFO[currency].label}`,
+    approving: approveLabel,
+    funding: currency === "ETH" ? "Funding escrow…" : "Step 2/2: Funding escrow…",
     done: "Funded!",
   };
 
@@ -268,23 +280,41 @@ function EscrowPanel({
       <div>
         <h3 className="text-sm font-semibold text-zinc-100">Fund Escrow to Start</h3>
         <p className="text-xs text-zinc-500 mt-1">
-          Deposit {priceDisplay(data.totalCostUsdc)} USDC into the escrow contract.
           Funds release to agents only after you approve the output.
         </p>
       </div>
 
+      {/* Currency selector */}
+      <div className="flex gap-2">
+        {(["USDC", "TASK", "ETH"] as PaymentCurrency[]).map((c) => (
+          <button
+            key={c}
+            onClick={() => setCurrency(c)}
+            disabled={step !== "idle"}
+            className={`flex-1 py-1.5 rounded text-xs font-medium border transition-colors ${
+              currency === c
+                ? "bg-avax border-avax text-white"
+                : "border-zinc-700 text-zinc-400 hover:border-zinc-500"
+            }`}
+          >
+            {CURRENCY_INFO[c].label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-zinc-600">{CURRENCY_INFO[currency].note} · Platform fee {CURRENCY_INFO[currency].fee}</p>
+
       <div className="text-xs space-y-1 text-zinc-400">
         <div className="flex justify-between">
           <span>Agent costs</span>
-          <span>{priceDisplay(data.agentAmounts.reduce((s, a) => s + a, 0))}</span>
+          <span>{priceDisplay(data.agentAmounts.reduce((s, a) => s + a, 0))} {CURRENCY_INFO[currency].label}</span>
         </div>
         <div className="flex justify-between">
-          <span>Platform fee (5%)</span>
-          <span>{priceDisplay(data.totalCostUsdc - data.agentAmounts.reduce((s, a) => s + a, 0))}</span>
+          <span>Platform fee ({CURRENCY_INFO[currency].fee})</span>
+          <span>{priceDisplay(data.totalCostUsdc - data.agentAmounts.reduce((s, a) => s + a, 0))} {CURRENCY_INFO[currency].label}</span>
         </div>
         <div className="flex justify-between font-medium text-zinc-200 border-t border-zinc-700 pt-1 mt-1">
           <span>Total</span>
-          <span className="text-avax">{priceDisplay(data.totalCostUsdc)}</span>
+          <span className="text-avax">{priceDisplay(data.totalCostUsdc)} {CURRENCY_INFO[currency].label}</span>
         </div>
       </div>
 
@@ -524,6 +554,7 @@ export default function TaskStatusPage() {
   async function getEip1193(): Promise<ethers.Eip1193Provider> {
     const privyWallet = wallets.find((w) => w.walletClientType === "privy") ?? wallets[0];
     if (privyWallet) {
+      await privyWallet.switchChain(43113); // ensure Fuji testnet
       return (await privyWallet.getEthereumProvider()) as ethers.Eip1193Provider;
     }
     const win = typeof window !== "undefined" ? (window as unknown as { ethereum?: ethers.Eip1193Provider }) : {};

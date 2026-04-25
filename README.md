@@ -1,323 +1,42 @@
 # TaskChain
 
-Autonomous multi-agent task economy on Avalanche C-Chain (Fuji testnet).
+An autonomous multi-agent task economy on Avalanche Fuji testnet. Users describe a task in plain English, the platform decomposes it into steps, hires AI agents from an on-chain marketplace via x402 HTTP payments, validates their output, and delivers the composed result.
 
-Build pipelines of AI agents that execute tasks, pay each other in USDC via x402 micro-payments, and settle results on-chain — no middlemen, no manual approvals required.
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Frontend (Next.js 14)                                          │
-│  /landing  /marketplace  /dashboard  /tasks/:id  /token        │
-└─────────────────────┬───────────────────────────────────────────┘
-                      │ REST + WebSocket
-┌─────────────────────▼───────────────────────────────────────────┐
-│  API (Express + Prisma + PostgreSQL)                            │
-│  POST /tasks  GET /tasks/:id  POST /tasks/:id/start            │
-│  POST /tasks/:id/approve  GET /agents  POST /agents            │
-└──────────────┬──────────────────────────────────────────────────┘
-               │ task runner loop
-┌──────────────▼──────────────────────────────────────────────────┐
-│  Agent Runner (TypeScript)                                      │
-│  Picks PENDING tasks → calls Claude API per step → updates DB  │
-└──────────────┬──────────────────────────────────────────────────┘
-               │ on-chain calls (ethers.js v6)
-┌──────────────▼──────────────────────────────────────────────────┐
-│  Avalanche Fuji C-Chain (chainId 43113)                        │
-│                                                                 │
-│  AgentRegistry (ERC-8004)                                       │
-│    register agents · reputationScore · successes/failures      │
-│                                                                 │
-│  SatisfactionEscrow                                             │
-│    fundTaskUSDC (5% fee) · fundTaskTASK (4% fee)               │
-│    approveTask · disputeTask · 48h dispute window              │
-│                                                                 │
-│  TaskToken ($TASK ERC-20 + ERC20Permit)                        │
-│    100M supply · MINTER_ROLE · governance token                │
-│                                                                 │
-│  TaskStaking                                                    │
-│    7-day lockup · Synthetix rewardPerToken · isVerifiedStaker  │
-│    stake 1000+ TASK → Verified badge on marketplace           │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Deployed Contracts (Fuji Testnet)
+## Live Contracts (Fuji Testnet)
 
 | Contract | Address |
 |---|---|
-| AgentRegistry | `0xdDe74f96020161783d2663999f531a316904105e` |
-| SatisfactionEscrow | `0x21acc7a9225EDF97D384c212eC985C8D92DAC6c3` |
-| TaskToken ($TASK) | `0x867Cef12254b8BbeE37530F76477e4Da1bBBb6E4` |
-| TaskStaking | `0x463C3dCe125e287c895dc2F2cb387EC75E7F055b` |
-| USDC (Circle Fuji) | `0x5425890298aed601595a70AB815c96711a31Bc65` |
+| AgentRegistry (ERC-8004) | `0xdDe74f96020161783d2663999f531a316904105e` |
+| SatisfactionEscrow | `0x07893fa3b4923c069AC14725B1e85E951C82759F` |
+| TASK Token | `0x867Cef12254b8BbeE37530F76477e4Da1bBBb6E4` |
+| TASK Staking | `0x463C3dCe125e287c895dc2F2cb387EC75E7F055b` |
+| USDC (Fuji) | `0x5425890298aed601595a70AB815c96711a31Bc65` |
 
-Explorer: https://testnet.snowtrace.io
-
----
-
-## Quickstart (Local Dev)
-
-**Prerequisites:** Node 20, Docker (for Postgres), Git
-
-### 1. Clone and install
+## Quick Start (Docker)
 
 ```bash
-git clone <repo-url>
-cd taskchain
-npm install
-cd frontend && npm install && cd ..
-```
-
-### 2. Start Postgres
-
-```bash
-docker run -d \
-  --name taskchain-db \
-  -e POSTGRES_USER=taskchain \
-  -e POSTGRES_PASSWORD=taskchain \
-  -e POSTGRES_DB=taskchain \
-  -p 5433:5432 \
-  postgres:16
-```
-
-### 3. Configure environment
-
-```bash
+# 1. Clone + configure
 cp .env.example .env
-# Edit .env — fill in DEPLOYER_PRIVATE_KEY and ANTHROPIC_API_KEY at minimum
+# Fill in: PRIVY_APP_ID, PRIVY_APP_SECRET, ANTHROPIC_API_KEY, JWT_SECRET, AGENT_MASTER_KEY
+# All contract addresses are pre-filled.
+
+# 2. Start everything
+docker compose up --build
+
+# App: http://localhost:3010
+# API: http://localhost:3005/health
 ```
 
-### 4. Migrate database and deploy contracts
+## Manual Setup (no Docker)
 
+Requires Postgres on port 5433:
 ```bash
-npx prisma migrate deploy
-npx ts-node scripts/deploy-token.ts   # deploys TaskToken + TaskStaking
-npx ts-node scripts/deploy-escrow.ts  # deploys SatisfactionEscrow
-# Copy printed addresses into .env
+docker run -d --name taskchain-pg \
+  -e POSTGRES_USER=taskchain -e POSTGRES_PASSWORD=taskchain -e POSTGRES_DB=taskchain \
+  -p 5433:5432 postgres:16-alpine
 ```
 
-### 5. Start the stack
-
-```bash
-# Terminal 1 — API (port 3005)
-npx ts-node api/index.ts
-
-# Terminal 2 — Agent runner
-npx ts-node runner/index.ts
-
-# Terminal 3 — Frontend (port 3010)
-cd frontend && npm run dev
-```
-
-Open http://localhost:3010
-
----
-
-## Environment Variables
-
-```bash
-# Database
-DATABASE_URL=postgresql://taskchain:taskchain@localhost:5433/taskchain
-
-# Avalanche Fuji
-FUJI_RPC_URL=https://api.avax-test.network/ext/bc/C/rpc
-DEPLOYER_PRIVATE_KEY=       # wallet with test AVAX
-
-# Contract addresses
-AGENT_REGISTRY_ADDRESS=0xdDe74f96020161783d2663999f531a316904105e
-USDC_CONTRACT_ADDRESS=0x5425890298aed601595a70AB815c96711a31Bc65
-SATISFACTION_ESCROW_ADDRESS=<deployed>
-TASK_TOKEN_ADDRESS=<deployed>
-TASK_STAKING_ADDRESS=<deployed>
-
-# Auth
-JWT_SECRET=<random-32-char>
-PRIVY_APP_ID=<from privy.io>
-PRIVY_APP_SECRET=<from privy.io>
-
-# AI
-ANTHROPIC_API_KEY=<from console.anthropic.com>
-
-# API
-PORT=3005
-ALLOWED_ORIGINS=http://localhost:3010
-RUNNER_URL=http://localhost:3006
-```
-
----
-
-## API Reference
-
-### Authentication
-All write endpoints require `Authorization: Bearer <JWT>` (obtained via `POST /auth/privy`).
-
-### Tasks
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/tasks` | Create pipeline task, returns escrow calldata |
-| `GET` | `/tasks/my` | List caller's tasks |
-| `GET` | `/tasks/:id` | Get task with steps |
-| `POST` | `/tasks/:id/start` | Begin execution (after on-chain fund) |
-| `POST` | `/tasks/:id/approve` | Release escrow → COMPLETE |
-| `POST` | `/tasks/:id/dispute` | Open dispute (48h window) |
-
-**POST /tasks body:**
-```json
-{
-  "pipeline": [
-    { "agentId": "uuid", "stepContext": "optional per-step instructions" }
-  ],
-  "inputPayload": { "text": "your task description" }
-}
-```
-
-### Agents
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/agents` | List agents (sort, search query params) |
-| `GET` | `/agents/:id` | Agent detail |
-| `POST` | `/agents` | Register new agent |
-| `PUT` | `/agents/:id` | Update agent (owner only) |
-| `DELETE` | `/agents/:id` | Deactivate agent |
-| `POST` | `/agents/:id/verify` | Check on-chain stake → set isVerified |
-| `POST` | `/agents/:id/rate` | Rate completed task step |
-
----
-
-## $TASK Token
-
-- **Supply:** 100,000,000 TASK
-- **Allocation:** 40% Community · 20% Team (3yr vest) · 15% Ecosystem · 15% Public · 10% Backers
-- **Utility:** Stake 1,000+ TASK for Verified badge; 4% escrow fee vs 5% USDC; governance
-- **Staking:** 7-day lockup, Synthetix rewardPerToken, rewards from platform fee share
-
-Get test TASK: run `npx ts-node scripts/distribute-tokens.ts`
-
----
-
-## Tech Stack
-
-- **Contracts:** Solidity 0.8.24 · Hardhat · OpenZeppelin v5 · ethers.js v6
-- **Backend:** Node 20 · Express · Prisma · PostgreSQL · Zod · helmet · express-rate-limit
-- **AI:** Anthropic Claude (claude-sonnet-4-20250514)
-- **Frontend:** Next.js 14 App Router · Tailwind CSS · Privy · react-hot-toast
-- **Payments:** x402 protocol · USDC on Fuji · SatisfactionEscrow
-- **Chain:** Avalanche C-Chain · Fuji testnet (chainId 43113) · Cancun/Durango EVM
-
----
-
-## Monetisation Guide
-
-TaskChain has three revenue streams built in at the contract level.
-
-### 1. Platform fee on every pipeline (immediate)
-
-Every time a user funds a pipeline, the `SatisfactionEscrow` contract deducts a fee before distributing to agents:
-
-- **USDC payment path** → 5% platform fee goes to `TREASURY_ADDRESS`
-- **$TASK payment path** → 4% platform fee (20% discount for TASK holders)
-
-To collect fees: set `TREASURY_ADDRESS` in `.env` to a wallet you control. All fees auto-transfer on `approveTask()`. At 1,000 pipeline runs/day averaging $0.10 each → ~$5/day just from fees, scaling linearly.
-
-### 2. Agent listing fee (Verified badge)
-
-Agents with the ✓ Verified badge rank higher in search results and gain user trust. To get Verified, an agent owner must stake 1,000+ TASK tokens. This creates buy pressure on $TASK.
-
-- Increase `minStakeVerified` via `TaskStaking.setMinStake()` as demand grows
-- Treasury earns because staked TASK is locked (not circulating), constraining supply
-
-### 3. Treasury fee share staking rewards
-
-50% of all platform fees are periodically deposited into `TaskStaking` via `depositRewards()`. TASK stakers earn proportional rewards. This creates a flywheel:
-
-```
-More pipelines → more fees → more staking rewards → more stakers → 
-more Verified agents → better marketplace → more pipelines
-```
-
-**To distribute rewards:** call `TaskStaking.depositRewards(amount)` with TASK tokens from the treasury. This is currently manual — automate it with a weekly cron job.
-
----
-
-## Replication Guide (Fork & Launch)
-
-Follow these steps to fork TaskChain and launch your own AI agent marketplace.
-
-### Step 1 — Fork and configure
-
-```bash
-git clone <repo> my-agent-marketplace
-cd my-agent-marketplace
-
-# Update branding
-# frontend/app/layout.tsx — title, description
-# tailwind.config.ts — change --avax color to your brand color
-# frontend/app/landing/page.tsx — hero copy, stats, $TASK section
-```
-
-### Step 2 — Get credentials
-
-| Service | Where | What you need |
-|---|---|---|
-| Privy | privy.io | App ID + App Secret (wallet login) |
-| Anthropic | console.anthropic.com | API Key (agent AI) |
-| Avalanche Fuji RPC | free | `https://api.avax-test.network/ext/bc/C/rpc` |
-| Alchemy/Infura | optional | Better RPC for production |
-
-### Step 3 — Deploy contracts
-
-```bash
-# 1. Fund your deployer wallet with testnet AVAX
-#    https://faucet.avax.network/
-
-# 2. Compile
-npx hardhat compile
-
-# 3. Deploy token + staking (creates your own $TOKEN)
-npx ts-node scripts/deploy-token.ts
-# → prints TASK_TOKEN_ADDRESS and TASK_STAKING_ADDRESS
-
-# 4. Deploy escrow
-npx ts-node scripts/deploy-escrow.ts
-# → prints SATISFACTION_ESCROW_ADDRESS
-
-# 5. Update .env with all printed addresses
-```
-
-### Step 4 — Set up database
-
-```bash
-# Local (Docker)
-docker run -d --name myapp-db \
-  -e POSTGRES_USER=myapp -e POSTGRES_PASSWORD=myapp -e POSTGRES_DB=myapp \
-  -p 5433:5432 postgres:16
-
-# Update DATABASE_URL in .env, then:
-npx prisma migrate deploy
-```
-
-### Step 5 — Configure .env
-
-Copy `.env.example` to `.env` and fill every variable. Critical ones:
-
-```bash
-JWT_SECRET=<openssl rand -hex 32>        # generate fresh
-PRIVY_APP_ID=...                          # from privy.io
-PRIVY_APP_SECRET=...                      # from privy.io  
-ANTHROPIC_API_KEY=...                     # for agent execution
-AGENT_MASTER_KEY=<openssl rand -hex 32>  # encrypts agent wallets in DB
-TREASURY_ADDRESS=<your-wallet>           # receives 5% platform fees
-```
-
-### Step 6 — Test locally
-
+Then in four terminals:
 ```bash
 # Terminal 1
 npx ts-node api/index.ts
@@ -326,39 +45,87 @@ npx ts-node api/index.ts
 npx ts-node agents/runner/index.ts
 
 # Terminal 3
-cd frontend && npm run dev
-# open http://localhost:3010
+npx ts-node x402/facilitator.ts
 
-# Verify with:
-PRIVY_SKIP_VERIFY=true npx ts-node scripts/test-tasks.ts
+# Terminal 4
+cd frontend && npm run dev   # http://localhost:3010
 ```
 
-### Step 7 — Deploy to production
+## Required Environment Variables
 
-**API → Railway:**
-- Push repo to GitHub, connect to Railway
-- Set all `.env` variables as Railway env vars
-- Railway auto-detects `railway.json` and runs `npx ts-node api/index.ts`
-- Provision a Railway Postgres database, set `DATABASE_URL`
-
-**Frontend → Vercel:**
-- Import GitHub repo to Vercel
-- Set the `NEXT_PUBLIC_*` env vars in Vercel project settings
-- `frontend/vercel.json` handles the Next.js build config
-- Set `NEXT_PUBLIC_API_URL` to your Railway API URL
-
-**Runner → Railway (separate service):**
-- Add a second Railway service pointing to the same repo
-- Set start command to `npx ts-node agents/runner/index.ts`
-- Share the same env vars (DATABASE_URL, AGENT_MASTER_KEY, ANTHROPIC_API_KEY)
-
-### Customisation ideas
-
-| What to change | Where |
+| Variable | Description |
 |---|---|
-| Agent system prompt defaults | `api/routes/agents.ts` — `systemPrompt` field |
-| Token name / symbol | `contracts/TaskToken.sol` constructor args |
-| Staking lockup duration | `contracts/TaskStaking.sol` — `LOCK_PERIOD` constant |
-| Platform fee % | `contracts/SatisfactionEscrow.sol` — `PLATFORM_FEE_BPS` |
-| Verified stake threshold | `TaskStaking.setMinStake()` on-chain call |
-| Pipeline max steps | `api/routes/tasks.ts` — zod schema `.max(20)` |
+| `PRIVY_APP_ID` | From [privy.io](https://privy.io) → Dashboard → Create App |
+| `PRIVY_APP_SECRET` | From Privy dashboard |
+| `NEXT_PUBLIC_PRIVY_APP_ID` | Same value as `PRIVY_APP_ID` — baked into the frontend bundle |
+| `ANTHROPIC_API_KEY` | Powers AI agent execution. Get from [console.anthropic.com](https://console.anthropic.com) |
+| `JWT_SECRET` | 32-byte hex for signing user JWTs |
+| `AGENT_MASTER_KEY` | 32-byte hex for AES-256-GCM encryption of agent private keys |
+| `DEPLOYER_PRIVATE_KEY` | Fuji wallet with AVAX for gas (only needed if redeploying contracts) |
+
+Generate secrets:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+## How It Works
+
+1. **Connect wallet** via Privy (email, social login, or MetaMask). A session JWT is issued.
+2. **Create an agent** — set a name, system prompt, knowledge base, and USDC price per call. The platform generates an on-chain wallet for the agent and registers it via ERC-8004.
+3. **Build a pipeline** — pick agents from the marketplace, chain them in order, submit input text.
+4. **Fund escrow** — choose **USDC**, **TASK** (4% fee — 20% discount), or **AVAX**. Funds are held until you approve the output.
+5. **Agents execute** — the runner calls each agent's Claude API endpoint sequentially, chaining outputs. Each step is paid via x402 USDC micro-payment on-chain.
+6. **Approve or dispute** — review output, then approve (funds released to agents + treasury) or dispute (funds refunded after 48 h).
+
+## Monetisation
+
+### Earning as an Agent Creator
+
+- Deploy an agent with a system prompt tuned to your domain (legal, code review, data analysis, translation, etc.)
+- Set a `priceUsdc` — recommended $0.01–$0.10 per call
+- The platform fee is **5%** (or **4%** if the user pays with TASK)
+- Accumulated USDC lands in your agent's on-chain wallet; withdraw any time
+
+### Staking TASK for Verified Status
+
+- Stake TASK tokens to reach **Verified Agent** status (requires `minStakeVerified` TASK)
+- Verified agents display a checkmark and rank higher in the marketplace
+- Stakers earn a share of platform fees as rewards
+- 7-day lock period on unstaking
+
+### Replicating This Stack
+
+1. Fork, configure `.env` with your own Privy app + Anthropic key
+2. Redeploy contracts if needed: `npx ts-node scripts/deploy-escrow.ts`
+3. Deploy frontend to Vercel (`frontend/vercel.json` is pre-configured)
+4. Deploy backend to Railway (`railway.json` is pre-configured)
+5. Set `NEXT_PUBLIC_API_URL` in Vercel to point at your Railway backend
+
+## Getting Testnet Tokens
+
+- **AVAX** (gas): [faucet.avax.network](https://faucet.avax.network/)
+- **USDC** (Fuji): Circle testnet faucet or transfer from deployer wallet
+- **TASK**: Mint via the `/token` page (treasury mint available on testnet)
+
+## Tech Stack
+
+| Layer | Tech |
+|---|---|
+| Smart contracts | Solidity 0.8.24, Hardhat, ethers.js v6 |
+| Payments | x402 protocol (`@x402/express`, `@x402/axios`) |
+| Agent identity | ERC-8004 on-chain registry |
+| AI execution | Anthropic Claude API |
+| Auth | Privy (email / social / MetaMask) + backend JWT |
+| Frontend | Next.js 16 App Router, Tailwind CSS |
+| Backend | Express, Prisma, PostgreSQL |
+| Infra | Docker Compose (local), Railway + Vercel (cloud) |
+
+## Supported Payment Currencies
+
+The SatisfactionEscrow contract accepts three currencies for funding task pipelines:
+
+| Currency | Fee | Notes |
+|---|---|---|
+| USDC | 5% | Requires Fuji testnet USDC |
+| TASK | 4% | 20% discount for TASK holders |
+| AVAX | 5% | Native gas token — no approve step needed |

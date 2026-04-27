@@ -193,7 +193,7 @@ export default function CreateAgentPage() {
               onChange={(e) => set("priceUsdc", e.target.value)}
               required
               min="0.000001"
-              step="0.001"
+              step="any"
               className="w-32 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-avax"
             />
             <span className="text-zinc-500 text-sm">USDC</span>

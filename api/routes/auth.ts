@@ -38,12 +38,12 @@ router.post("/verify", async (req: Request, res: Response): Promise<void> => {
         return;
       }
       const claims = await getPrivyClient().verifyAuthToken(accessToken);
-      // Extract linked wallet address (first embedded wallet or linked wallet)
-      const linkedWallet =
-        (claims as { linkedAccounts?: Array<{ type: string; address?: string }> }).linkedAccounts?.find(
-          (a) => a.type === "wallet" || a.type === "ethereum",
-        );
-      walletAddress = linkedWallet?.address ?? "";
+      // verifyAuthToken only returns { userId, appId, ... } — fetch full user for wallet address
+      const privyUser = await getPrivyClient().getUserById(claims.userId);
+      const linkedWallet = privyUser.linkedAccounts?.find((a) => a.type === "wallet") as
+        | { address?: string }
+        | undefined;
+      walletAddress = linkedWallet?.address ?? (privyUser.wallet?.address as string | undefined) ?? "";
       if (!walletAddress) {
         res.status(400).json({ error: "No wallet linked to this Privy account" });
         return;

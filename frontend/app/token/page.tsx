@@ -216,7 +216,7 @@ export default function TokenPage() {
               <StatCard
                 label="Your Balance"
                 value={formatTask(stats.yourBalance) + " TASK"}
-                sub={stats.yourBalance === BigInt(0) ? "No TASK — get from treasury" : undefined}
+                sub={stats.yourBalance === BigInt(0) ? "No TASK — claim from faucet below ↓" : undefined}
               />
               <StatCard
                 label="Your Staked"
@@ -241,6 +241,20 @@ export default function TokenPage() {
               />
             </div>
           ) : null}
+
+          {/* Zero-balance nudge */}
+          {stats && stats.yourBalance === BigInt(0) && (
+            <div className="border border-avax/30 bg-avax/5 rounded-lg px-4 py-3 text-sm text-zinc-300 flex items-center justify-between gap-4">
+              <span>You have no TASK tokens. Claim 1,000 TASK from the testnet faucet to get started.</span>
+              <button
+                onClick={() => void handleFaucet()}
+                disabled={txBusy}
+                className="shrink-0 px-4 py-1.5 bg-avax text-white rounded text-xs font-medium disabled:opacity-50"
+              >
+                {txBusy ? "…" : "Get 1,000 TASK"}
+              </button>
+            </div>
+          )}
 
           {/* ── Actions ── */}
           <div className="grid sm:grid-cols-2 gap-6">
